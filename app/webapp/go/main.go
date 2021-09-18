@@ -398,8 +398,6 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		courseID := courseReq.ID
 		ok, course := h.getCourse(courseID)
 		if !ok {
-			c.Logger().Error("naiyo", ok, course, courseID)
-			c.Logger().Errorf("%+v", CourseCacheMap)
 			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
 			continue
 		}
@@ -790,8 +788,7 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	CourseCacheMux.RUnlock()
 
 	course := &Course{}
-	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
-		fmt.Printf("%+v\n", err)
+	if err := h.DB.Get(course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
 		return false, nil
 	}
 	CourseCacheMux.Lock()
@@ -1025,7 +1022,7 @@ func (h *handlers) getClass(classID string) (bool, *Class) {
 	ClassCacheMux.RUnlock()
 
 	class := &Class{}
-	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
+	if err := h.DB.Get(class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
 		return false, nil
 	}
 	ClassCacheMux.Lock()
