@@ -1256,11 +1256,11 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 
 func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
 	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := os.Remove(tmpDir); err != nil {
+	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
 		return err
 	}
-	if err := os.Mkdir(tmpDir, 0755); err != nil {
-		return err
+	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
+			return err
 	}
 
 	// ファイル名を指定の形式に変更
