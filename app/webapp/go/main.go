@@ -7,6 +7,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -120,14 +121,13 @@ func main() {
 	}
 
 	e := echo.New()
-	e.Debug = GetEnv("DEBUG", "") == "true"
-	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
+	// e.Debug = GetEnv("DEBUG", "") == "true"
 	e.HideBanner = true
 	e.JSONSerializer = &DefaultJSONSerializer{}
 
 	echoInt.Integrate(e)
 
-	//e.Use(middleware.Logger())
+	// e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
@@ -177,12 +177,39 @@ func main() {
 		}
 	}
 
-	// Start server
-	go func() {
-		if err := e.StartServer(e.Server); err != nil && err != http.ErrServerClosed {
-			e.Logger.Fatal("shutting down the server")
+	if (GetEnv("USE_SOCKET", "0") == "1") {
+		// ここからソケット接続設定 ---
+		socket_file := "/var/run/app.sock"
+		os.Remove(socket_file)
+
+		l, err := net.Listen("unix", socket_file)
+		if err != nil {
+			e.Logger.Fatal(err)
 		}
-	}()
+
+		// go runユーザとnginxのユーザ（グループ）を同じにすれば777じゃなくてok
+		err = os.Chmod(socket_file, 0777)
+		if err != nil {
+			e.Logger.Fatal(err)
+		}
+
+		e.Listener = l
+		e.Logger.Fatal(e.Start(""))
+		// Start server
+		go func() {
+			if err := e.Start(""); err != nil && err != http.ErrServerClosed {
+				e.Logger.Fatal("shutting down the server")
+			}
+		}()
+	} else {
+		e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
+		// Start server
+		go func() {
+			if err := e.StartServer(e.Server); err != nil && err != http.ErrServerClosed {
+				e.Logger.Fatal("shutting down the server")
+			}
+		}()
+	}
 
 	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
 	// Use a buffered channel to avoid missing signals as recommended for signal.Notify
