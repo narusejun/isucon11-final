@@ -1405,12 +1405,11 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 			sb.WriteString("','")
 			sb.WriteString(target.ID)
 			sb.WriteString("')")
-			if i < len(targets) {
+			if i < len(targets)-1 {
 				sb.WriteString(",")
 			}
 		}
 		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES " + sb.String()); err != nil {
-			c.Logger().Error(err, "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES "+sb.String())
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
