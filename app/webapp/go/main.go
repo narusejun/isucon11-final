@@ -1092,9 +1092,6 @@ type GetClassResponse struct {
 var (
 	ClassSubmissionCache = make(map[string]struct{})
 	ClassSubmissionMux = sync.RWMutex{}
-
-	ClassesCache = make(map[string][]*Class)
-	ClassesCache =
 )
 
 func (h *handlers) isSubmit(classID string, userID string) bool {
