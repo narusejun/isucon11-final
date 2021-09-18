@@ -649,6 +649,22 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	// 科目を履修している学生のTotalScore一覧
+	type totalS struct {
+		CourseId string `db:"course_id"`
+		Total    int    `db:"total_score"`
+	}
+	var totals []totalS
+	query = "SELECT course_id, total_score FROM user_course_total_scores WHERE `course_id` IN (" + sb.String() + ")"
+	if err := h.DB.Select(&totals, query); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	totalsMap := map[string][]int{}
+	for _, total := range totals {
+		totalsMap[total.CourseId] = append(totalsMap[total.CourseId], total.Total)
+	}
+
 	// 自分が提出した全サブミッション取得
 	query = "SELECT `class_id`, `score` FROM `submissions` WHERE `user_id` = ?"
 	type scoreS struct {
@@ -721,12 +737,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	myCredits := 0
 	for _, course := range registeredCourses {
 		// この科目を履修している学生のTotalScore一覧を取得
-		totals, err := h.getTotalScores(course.ID)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-
+		totals := totalsMap[course.ID]
 		courseResults = append(courseResults, CourseResult{
 			Name:             course.Name,
 			Code:             course.Code,
@@ -750,22 +761,8 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 	// GPAの統計値
 	// 一つでも修了した科目がある学生のGPA一覧
-	var gpas []float64
-	query = "SELECT IFNULL(SUM(`user_course_total_scores`.`total_score` * `courses`.`credit`), 0) / 100 / `credits`.`credits` AS `gpa`" +
-		" FROM `users`" +
-		" JOIN (" +
-		"     SELECT `users`.`id` AS `user_id`, SUM(`courses`.`credit`) AS `credits`" +
-		"     FROM `users`" +
-		"     JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
-		"     JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` AND `courses`.`status` = ?" +
-		"     GROUP BY `users`.`id`" +
-		" ) AS `credits` ON `credits`.`user_id` = `users`.`id`" +
-		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
-		" JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` AND `courses`.`status` = ?" +
-		" LEFT JOIN `user_course_total_scores` ON `users`.`id` = `user_course_total_scores`.`user_id` AND `user_course_total_scores`.`course_id` = `courses`.`id`" +
-		" WHERE `users`.`type` = ?" +
-		" GROUP BY `users`.`id`"
-	if err := h.DB.Select(&gpas, query, StatusClosed, StatusClosed, Student); err != nil {
+	gpas, err := h.getGPAStats()
+	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1090,19 +1087,19 @@ type GetClassResponse struct {
 
 var (
 	ClassSubmissionCache = make(map[string]struct{})
-	ClassSubmissionMux = sync.RWMutex{}
+	ClassSubmissionMux   = sync.RWMutex{}
 )
 
 func (h *handlers) isSubmit(classID string, userID string) bool {
 	ClassSubmissionMux.RLock()
-	_, ok := ClassSubmissionCache[classID + "/" + userID]
+	_, ok := ClassSubmissionCache[classID+"/"+userID]
 	ClassSubmissionMux.RUnlock()
 	return ok
 }
 
 func (h *handlers) submit(classID string, userID string) {
 	ClassSubmissionMux.Lock()
-	ClassSubmissionCache[classID + "/" + userID] = struct{}{}
+	ClassSubmissionCache[classID+"/"+userID] = struct{}{}
 	ClassSubmissionMux.Unlock()
 }
 
