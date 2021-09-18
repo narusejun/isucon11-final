@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"database/sql"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"io"
 	"net/http"
 	"net/url"
@@ -1304,7 +1303,7 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 	// eg := errgroup.Group{}
 	for _, _submission := range submissions {
 		submission := _submission
-		filename := AssignmentsDirectory+classID+"-"+submission.UserID+".pdf"
+		filename := AssignmentsDirectory + classID + "-" + submission.UserID + ".pdf"
 		f, err := os.Open(filename)
 		if err != nil {
 			f.Close()
@@ -1323,7 +1322,7 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 			return err
 		}
 
-		fileInfoHeader.Name = submission.UserCode+"-"+submission.FileName
+		fileInfoHeader.Name = submission.UserCode + "-" + submission.FileName
 
 		addedFile, err := bodyWriter.CreateHeader(fileInfoHeader)
 		if err != nil {
@@ -1331,7 +1330,7 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 			return err
 		}
 
-		if _, err := io.Copy(addedFile, f);err != nil {
+		if _, err := io.Copy(addedFile, f); err != nil {
 			f.Close()
 			return err
 		}
