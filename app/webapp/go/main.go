@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
-	"github.com/goccy/go-json"
 	"io"
 	"net/http"
 	"net/url"
@@ -17,7 +16,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -38,7 +40,20 @@ const (
 )
 
 type handlers struct {
-	DB *sqlx.DB
+	DB    *sqlx.DB
+	SubDB *sqlx.DB
+}
+
+var (
+	x int64
+)
+
+func (h *handlers) Balance() *sqlx.DB {
+	if atomic.AddInt64(&x, 1)%3 == 0 {
+		return h.DB
+	} else {
+		return h.SubDB
+	}
 }
 
 // DefaultJSONSerializer implements JSON encoding using encoding/json.
@@ -121,8 +136,12 @@ func main() {
 	db, _ := GetDB(false)
 	db.SetMaxOpenConns(200)
 
+	subdb, _ := GetSubDB(false)
+	db.SetMaxOpenConns(200)
+
 	h := &handlers{
-		DB: db,
+		DB:    db,
+		SubDB: subdb,
 	}
 
 	e.POST("/initialize", h.Initialize)
@@ -185,6 +204,7 @@ type InitializeResponse struct {
 // Initialize POST /initialize 初期化エンドポイント
 func (h *handlers) Initialize(c echo.Context) error {
 	dbForInit, _ := GetDB(true)
+	SubdbForInit, _ := GetSubDB(true)
 
 	files := []string{
 		"1_schema.sql",
@@ -198,6 +218,10 @@ func (h *handlers) Initialize(c echo.Context) error {
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		if _, err := dbForInit.Exec(string(data)); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		if _, err := SubdbForInit.Exec(string(data)); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -226,12 +250,16 @@ func (h *handlers) Initialize(c echo.Context) error {
 		" LEFT JOIN `classes` ON `courses`.`id` = `classes`.`course_id`" +
 		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
 		" GROUP BY `courses`.`id`, `users`.`id`"
-	if err := h.DB.Select(&totals, query); err != nil {
+	if err := h.Balance().Select(&totals, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	for _, total := range totals {
 		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`user_id`, `course_id`, `total_score`) VALUES (?, ?, ?)", total.UserID, total.CourseID, total.TotalScore); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		if _, err := h.SubDB.Exec("INSERT INTO `user_course_total_scores` (`user_id`, `course_id`, `total_score`) VALUES (?, ?, ?)", total.UserID, total.CourseID, total.TotalScore); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -356,7 +384,7 @@ func (h *handlers) Login(c echo.Context) error {
 	}
 
 	var user User
-	if err := h.DB.Get(&user, "SELECT * FROM `users` WHERE `code` = ?", req.Code); err != nil && err != sql.ErrNoRows {
+	if err := h.Balance().Get(&user, "SELECT * FROM `users` WHERE `code` = ?", req.Code); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
@@ -399,7 +427,7 @@ func (h *handlers) GetMe(c echo.Context) error {
 	}
 
 	var userCode string
-	if err := h.DB.Get(&userCode, "SELECT `code` FROM `users` WHERE `id` = ?", userID); err != nil {
+	if err := h.Balance().Get(&userCode, "SELECT `code` FROM `users` WHERE `id` = ?", userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -556,6 +584,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	}
 
 	for _, course := range newlyAdded {
+		h.SubDB.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
 		_, err = tx.Exec("INSERT INTO `registrations` (`course_id`, `user_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `course_id` = VALUES(`course_id`), `user_id` = VALUES(`user_id`)", course.ID, userID)
 		if err != nil {
 			c.Logger().Error(err)
@@ -624,7 +653,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// 履修している科目一覧取得
 	var registeredCourses []Course
 	query := "SELECT `courses`.`id`, `courses`.`name`, `courses`.`code`, `courses`.`credit`, `courses`.`status` FROM `registrations` JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` WHERE `user_id` = ?"
-	if err := h.DB.Select(&registeredCourses, query, userID); err != nil {
+	if err := h.Balance().Select(&registeredCourses, query, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -644,7 +673,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// 自分が参加した全class取得
 	var classes []Class
 	query = "SELECT id, course_id, part, title FROM `classes` WHERE `course_id` IN (" + sb.String() + ") ORDER BY `course_id`, `part` DESC"
-	if err := h.DB.Select(&classes, query); err != nil {
+	if err := h.Balance().Select(&classes, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -656,7 +685,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 	var totals []totalS
 	query = "SELECT course_id, total_score FROM user_course_total_scores WHERE `course_id` IN (" + sb.String() + ")"
-	if err := h.DB.Select(&totals, query); err != nil {
+	if err := h.Balance().Select(&totals, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -672,7 +701,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		Score   sql.NullInt64 `db:"score"`
 	}
 	var myScores []scoreS
-	if err := h.DB.Select(&myScores, query, userID); err != nil {
+	if err := h.Balance().Select(&myScores, query, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -697,7 +726,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		Count   int    `db:"count"`
 	}
 	var submissions []submissionS
-	if err := h.DB.Select(&submissions, query); err != nil {
+	if err := h.Balance().Select(&submissions, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -860,7 +889,7 @@ func (h *handlers) SearchCourses(c echo.Context) error {
 
 	// 結果が0件の時は空配列を返却
 	res := make([]GetCourseDetailResponse, 0)
-	if err := h.DB.Select(&res, query+condition, args...); err != nil {
+	if err := h.Balance().Select(&res, query+condition, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -924,7 +953,7 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	CourseCacheMux.RUnlock()
 
 	course := &Course{}
-	if err := h.DB.Get(course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
+	if err := h.Balance().Get(course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
 		return false, nil
 	}
 	CourseCacheMux.Lock()
@@ -968,12 +997,14 @@ func (h *handlers) AddCourse(c echo.Context) error {
 		Status:      StatusRegistration,
 	}
 
+	_, err = h.SubDB.Exec("INSERT INTO `courses` (`id`, `code`, `type`, `name`, `description`, `credit`, `period`, `day_of_week`, `teacher_id`, `keywords`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		courseID, req.Code, req.Type, req.Name, req.Description, req.Credit, req.Period, req.DayOfWeek, userID, req.Keywords)
 	_, err = h.DB.Exec("INSERT INTO `courses` (`id`, `code`, `type`, `name`, `description`, `credit`, `period`, `day_of_week`, `teacher_id`, `keywords`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		courseID, req.Code, req.Type, req.Name, req.Description, req.Credit, req.Period, req.DayOfWeek, userID, req.Keywords)
 	if err != nil {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var course Course
-			if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `code` = ?", req.Code); err != nil {
+			if err := h.Balance().Get(&course, "SELECT * FROM `courses` WHERE `code` = ?", req.Code); err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
@@ -1017,7 +1048,7 @@ func (h *handlers) GetCourseDetail(c echo.Context) error {
 		" FROM `courses`" +
 		" JOIN `users` ON `courses`.`teacher_id` = `users`.`id`" +
 		" WHERE `courses`.`id` = ?"
-	if err := h.DB.Get(&res, query, courseID); err != nil && err != sql.ErrNoRows {
+	if err := h.Balance().Get(&res, query, courseID); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
@@ -1052,6 +1083,10 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
+	if _, err := h.SubDB.Exec("UPDATE `courses` SET `status` = ? WHERE `id` = ?", req.Status, courseID); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if _, err := tx.Exec("UPDATE `courses` SET `status` = ? WHERE `id` = ?", req.Status, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1128,7 +1163,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		" FROM `classes`" +
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
-	if err := h.DB.Select(&classes, query, courseID); err != nil {
+	if err := h.Balance().Select(&classes, query, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1175,7 +1210,7 @@ func (h *handlers) getClass(classID string) (bool, *Class) {
 	ClassCacheMux.RUnlock()
 
 	class := &Class{}
-	if err := h.DB.Get(class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
+	if err := h.Balance().Get(class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
 		return false, nil
 	}
 	ClassCacheMux.Lock()
@@ -1219,12 +1254,14 @@ func (h *handlers) AddClass(c echo.Context) error {
 		SubmissionClosed: false,
 	}
 
+	h.SubDB.Exec("INSERT INTO `classes` (`id`, `course_id`, `part`, `title`, `description`) VALUES (?, ?, ?, ?, ?)",
+		classID, courseID, req.Part, req.Title, req.Description)
 	if _, err := tx.Exec("INSERT INTO `classes` (`id`, `course_id`, `part`, `title`, `description`) VALUES (?, ?, ?, ?, ?)",
 		classID, courseID, req.Part, req.Title, req.Description); err != nil {
 		_ = tx.Rollback()
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var class Class
-			if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `course_id` = ? AND `part` = ?", courseID, req.Part); err != nil {
+			if err := h.Balance().Get(&class, "SELECT * FROM `classes` WHERE `course_id` = ? AND `part` = ?", courseID, req.Part); err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
@@ -1297,6 +1334,10 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	if _, err := h.SubDB.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	h.submit(classID, userID)
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
@@ -1351,6 +1392,10 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	if _, err := h.SubDB.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`"+strings.Repeat(", ?", len(req))+"), ?"+strings.Repeat(", ?", len(req)-1)+") WHERE `users`.`code` IN(?"+strings.Repeat(", ?", len(req)-1)+") AND `class_id` = ?", args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 
 	type totalScoreS struct {
 		UserID     string `db:"user_id"`
@@ -1365,13 +1410,17 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
 		" WHERE `courses`.`id` = ?" +
 		" GROUP BY `courses`.`id`, `users`.`id`"
-	if err := h.DB.Select(&totals, query, class.CourseID); err != nil {
+	if err := h.Balance().Select(&totals, query, class.CourseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	for _, total := range totals {
 		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`total_score`, `course_id`, `user_id`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE total_score = ?", total.TotalScore, class.CourseID, total.UserID, total.TotalScore); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		if _, err := h.SubDB.Exec("INSERT INTO `user_course_total_scores` (`total_score`, `course_id`, `user_id`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE total_score = ?", total.TotalScore, class.CourseID, total.UserID, total.TotalScore); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -1418,6 +1467,10 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	if _, err := h.SubDB.Exec("UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	if _, err := tx.Exec("UPDATE `classes` SET `submission_closed` = true WHERE `id` = ?", classID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -1557,13 +1610,13 @@ func (h *handlers) GetAnnouncementList(c echo.Context) error {
 	// limitより多く上限を設定し、実際にlimitより多くレコードが取得できた場合は次のページが存在する
 	args = append(args, limit+1, offset)
 
-	if err := h.DB.Select(&announcements, query, args...); err != nil {
+	if err := h.Balance().Select(&announcements, query, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var unreadCount int
-	if err := h.DB.Get(&unreadCount, "SELECT COUNT(*) FROM `unread_announcements` WHERE `user_id` = ? AND NOT `is_deleted`", userID); err != nil {
+	if err := h.Balance().Get(&unreadCount, "SELECT COUNT(*) FROM `unread_announcements` WHERE `user_id` = ? AND NOT `is_deleted`", userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1640,12 +1693,13 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
 
+	h.SubDB.Exec("INSERT INTO `announcements` (`id`, `course_id`, `title`, `message`) VALUES (?, ?, ?, ?)", req.ID, req.CourseID, req.Title, req.Message)
 	if _, err := tx.Exec("INSERT INTO `announcements` (`id`, `course_id`, `title`, `message`) VALUES (?, ?, ?, ?)",
 		req.ID, req.CourseID, req.Title, req.Message); err != nil {
 		_ = tx.Rollback()
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var announcement Announcement
-			if err := h.DB.Get(&announcement, "SELECT * FROM `announcements` WHERE `id` = ?", req.ID); err != nil {
+			if err := h.Balance().Get(&announcement, "SELECT * FROM `announcements` WHERE `id` = ?", req.ID); err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
@@ -1679,6 +1733,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 				sb.WriteString(",")
 			}
 		}
+		h.SubDB.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES " + sb.String())
 		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES " + sb.String()); err != nil {
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -1733,6 +1788,12 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	r, err = h.SubDB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ? AND `is_deleted` = false", announcementID, userID)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 	count, _ := r.RowsAffected()
 	announcementDetail.Unread = count > 0
 
