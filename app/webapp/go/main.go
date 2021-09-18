@@ -649,6 +649,22 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	// 科目を履修している学生のTotalScore一覧
+	type totalS struct {
+		CourseId string `db:"course_id"`
+		Total    int    `db:"total_score"`
+	}
+	var totals []totalS
+	query = "SELECT course_id, total_score FROM user_course_total_scores WHERE `course_id` IN (" + sb.String() + ")"
+	if err := h.DB.Select(&totals, query); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	totalsMap := map[string][]int{}
+	for _, total := range totals {
+		totalsMap[total.CourseId] = append(totalsMap[total.CourseId], total.Total)
+	}
+
 	// 自分が提出した全サブミッション取得
 	query = "SELECT `class_id`, `score` FROM `submissions` WHERE `user_id` = ?"
 	type scoreS struct {
@@ -721,12 +737,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	myCredits := 0
 	for _, course := range registeredCourses {
 		// この科目を履修している学生のTotalScore一覧を取得
-		totals, err := h.getTotalScores(course.ID)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-
+		totals := totalsMap[course.ID]
 		courseResults = append(courseResults, CourseResult{
 			Name:             course.Name,
 			Code:             course.Code,
@@ -1076,19 +1087,19 @@ type GetClassResponse struct {
 
 var (
 	ClassSubmissionCache = make(map[string]struct{})
-	ClassSubmissionMux = sync.RWMutex{}
+	ClassSubmissionMux   = sync.RWMutex{}
 )
 
 func (h *handlers) isSubmit(classID string, userID string) bool {
 	ClassSubmissionMux.RLock()
-	_, ok := ClassSubmissionCache[classID + "/" + userID]
+	_, ok := ClassSubmissionCache[classID+"/"+userID]
 	ClassSubmissionMux.RUnlock()
 	return ok
 }
 
 func (h *handlers) submit(classID string, userID string) {
 	ClassSubmissionMux.Lock()
-	ClassSubmissionCache[classID + "/" + userID] = struct{}{}
+	ClassSubmissionCache[classID+"/"+userID] = struct{}{}
 	ClassSubmissionMux.Unlock()
 }
 
