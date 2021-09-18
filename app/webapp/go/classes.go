@@ -13,8 +13,8 @@ type (
 )
 
 var (
-	classesEtag_uc map[string]map[string]*etag
-	classesEtag_cu map[string]map[string]*etag
+	classesEtag_uc map[string]map[string]*etag = make(map[string]map[string]*etag)
+	classesEtag_cu map[string]map[string]*etag = make(map[string]map[string]*etag)
 )
 
 func (h *handlers) setClassesEtag(courseID string, userID string) string {
