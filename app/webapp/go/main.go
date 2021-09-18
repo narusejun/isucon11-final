@@ -1410,7 +1410,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 			}
 		}
 		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES " + sb.String()); err != nil {
-			c.Logger().Error(err)
+			c.Logger().Error(err, "INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES "+sb.String())
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
