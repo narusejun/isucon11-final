@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
-	"github.com/goccy/go-json"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/goccy/go-json"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -38,7 +39,8 @@ const (
 )
 
 type handlers struct {
-	DB *sqlx.DB
+	DB    *sqlx.DB
+	SubDB *sqlx.DB
 }
 
 // DefaultJSONSerializer implements JSON encoding using encoding/json.
@@ -121,8 +123,12 @@ func main() {
 	db, _ := GetDB(false)
 	db.SetMaxOpenConns(200)
 
+	subdb, _ := GetSubDB(false)
+	db.SetMaxOpenConns(200)
+
 	h := &handlers{
-		DB: db,
+		DB:    db,
+		SubDB: subdb,
 	}
 
 	e.POST("/initialize", h.Initialize)
@@ -185,6 +191,7 @@ type InitializeResponse struct {
 // Initialize POST /initialize 初期化エンドポイント
 func (h *handlers) Initialize(c echo.Context) error {
 	dbForInit, _ := GetDB(true)
+	SubdbForInit, _ := GetSubDB(true)
 
 	files := []string{
 		"1_schema.sql",
@@ -198,6 +205,10 @@ func (h *handlers) Initialize(c echo.Context) error {
 			return c.NoContent(http.StatusInternalServerError)
 		}
 		if _, err := dbForInit.Exec(string(data)); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		if _, err := SubdbForInit.Exec(string(data)); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -1297,6 +1308,10 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	if _, err := h.SubDB.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
 	h.submit(classID, userID)
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
@@ -1348,6 +1363,10 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	args[3*len(req)] = classID
 
 	if _, err := h.DB.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`"+strings.Repeat(", ?", len(req))+"), ?"+strings.Repeat(", ?", len(req)-1)+") WHERE `users`.`code` IN(?"+strings.Repeat(", ?", len(req)-1)+") AND `class_id` = ?", args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	if _, err := h.SubDB.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`"+strings.Repeat(", ?", len(req))+"), ?"+strings.Repeat(", ?", len(req)-1)+") WHERE `users`.`code` IN(?"+strings.Repeat(", ?", len(req)-1)+") AND `class_id` = ?", args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
