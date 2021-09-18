@@ -1191,15 +1191,6 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
 
-
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
-
 	// TODO 一発でできる
 	args := make([]interface{}, 3 * len(req) + 1)
 
@@ -1210,12 +1201,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 	args[3*len(req)] = classID
 
-	if _, err := tx.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`" + strings.Repeat(", ?", len(req)) + "), ?" + strings.Repeat(", ?", len(req)-1) + ") WHERE `users`.`code` IN(?" + strings.Repeat(", ?", len(req)-1) + ") AND `class_id` = ?", args...); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if err := tx.Commit(); err != nil {
+	if _, err := h.DB.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`" + strings.Repeat(", ?", len(req)) + "), ?" + strings.Repeat(", ?", len(req)-1) + ") WHERE `users`.`code` IN(?" + strings.Repeat(", ?", len(req)-1) + ") AND `class_id` = ?", args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
