@@ -9,7 +9,7 @@ sudo nginx -t
 cd /home/isucon/webapp/go
 make build
 
-sudo systemctl restart isucholar.go
+# sudo systemctl restart isucholar.go
 # sudo systemctl restart nginx
 sudo systemctl restart mysql
 
