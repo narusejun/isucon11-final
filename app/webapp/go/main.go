@@ -555,15 +555,34 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		myScoresMap[score.ClassId] = score.Score
 	}
 
+	// クラスの全サブミッション数
+	sb.Reset()
+	for i, class := range classes {
+		sb.WriteString("'")
+		sb.WriteString(class.ID)
+		sb.WriteString("'")
+		if i < len(classes)-1 {
+			sb.WriteString(",")
+		}
+	}
+	query = "SELECT class_id, COUNT(*) AS count FROM `submissions` WHERE `class_id` IN (" + sb.String() + ") GROUP BY class_id"
+	type submissionS struct {
+		ClassId string `db:"class_id"`
+		Count   int    `db:"count"`
+	}
+	var submissions []submissionS
+	if err := h.DB.Select(&submissions, query); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	submissionsMap := make(map[string]int, len(submissions))
+	for _, sub := range submissions {
+		submissionsMap[sub.ClassId] = sub.Count
+	}
+
 	myTotalScores := map[string]int{}
 	classScores := make(map[string][]ClassScore, len(classes))
 	for _, class := range classes {
-		var submissionsCount int
-		if err := h.DB.Get(&submissionsCount, "SELECT COUNT(*) FROM `submissions` WHERE `class_id` = ?", class.ID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-
 		myScore := myScoresMap[class.ID]
 		if !myScore.Valid {
 			classScores[class.CourseID] = append(classScores[class.CourseID], ClassScore{
@@ -571,7 +590,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 				Part:       class.Part,
 				Title:      class.Title,
 				Score:      nil,
-				Submitters: submissionsCount,
+				Submitters: submissionsMap[class.ID],
 			})
 		} else {
 			score := int(myScore.Int64)
@@ -581,7 +600,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 				Part:       class.Part,
 				Title:      class.Title,
 				Score:      &score,
-				Submitters: submissionsCount,
+				Submitters: submissionsMap[class.ID],
 			})
 		}
 	}
