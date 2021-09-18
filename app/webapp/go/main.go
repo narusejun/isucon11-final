@@ -2,7 +2,9 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"database/sql"
+	"encoding/gob"
 	"fmt"
 	"github.com/goccy/go-json"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +65,39 @@ func (d DefaultJSONSerializer) Deserialize(c echo.Context, i interface{}) error 
 	return err
 }
 
+func load(logger echo.Logger) {
+	f, err := os.Open("./submission_cache")
+	if os.IsNotExist(err) {
+		logger.Info("File not exist")
+		return
+	}
+
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer f.Close()
+
+	dec := gob.NewDecoder(f)
+	if err := dec.Decode(&ClassSubmissionCache); err != nil {
+		logger.Fatal("decode error:", err)
+	}
+	logger.Infof("loaded: %+v", ClassSubmissionCache)
+}
+
+func shutdownHook(logger echo.Logger) {
+	logger.Info("Output to gob file")
+	f, err := os.Create("./submission_cache")
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer f.Close()
+	enc := gob.NewEncoder(f)
+
+	if err := enc.Encode(ClassSubmissionCache); err != nil {
+		logger.Fatal(err)
+	}
+}
+
 func main() {
 	var err error
 	if time.Local, err = time.LoadLocation("UTC"); err != nil {
@@ -79,6 +115,8 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
+
+	load(e.Logger)
 
 	db, _ := GetDB(false)
 	db.SetMaxOpenConns(200)
@@ -120,7 +158,24 @@ func main() {
 		}
 	}
 
-	e.Logger.Error(e.StartServer(e.Server))
+	// Start server
+	go func() {
+		if err := e.Start(":1323"); err != nil && err != http.ErrServerClosed {
+			e.Logger.Fatal("shutting down the server")
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
+	// Use a buffered channel to avoid missing signals as recommended for signal.Notify
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownHook(e.Logger)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		e.Logger.Fatal(err)
+	}
 }
 
 type InitializeResponse struct {
@@ -1037,6 +1092,9 @@ type GetClassResponse struct {
 var (
 	ClassSubmissionCache = make(map[string]struct{})
 	ClassSubmissionMux = sync.RWMutex{}
+
+	ClassesCache = make(map[string][]*Class)
+	ClassesCache =
 )
 
 func (h *handlers) isSubmit(classID string, userID string) bool {
