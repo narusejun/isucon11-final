@@ -623,7 +623,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 	// 履修している科目一覧取得
 	var registeredCourses []Course
-	query := "SELECT `courses`.* FROM `registrations` JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` WHERE `user_id` = ?"
+	query := "SELECT `courses`.`id`, `courses`.`name`, `courses`.`code`, `courses`.`credit` FROM `registrations` JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` WHERE `user_id` = ?"
 	if err := h.DB.Select(&registeredCourses, query, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
@@ -643,7 +643,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 	// 自分が参加した全class取得
 	var classes []Class
-	query = "SELECT * FROM `classes` WHERE `course_id` IN (" + sb.String() + ") ORDER BY `course_id`, `part` DESC"
+	query = "SELECT id, course_id, part, title FROM `classes` WHERE `course_id` IN (" + sb.String() + ") ORDER BY `course_id`, `part` DESC"
 	if err := h.DB.Select(&classes, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
