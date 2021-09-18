@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -139,16 +138,8 @@ func (h *handlers) Initialize(c echo.Context) error {
 // IsLoggedIn ログイン確認用middleware
 func (h *handlers) IsLoggedIn(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		sess, err := session.Get(SessionName, c)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-		if sess.IsNew {
-			return c.String(http.StatusUnauthorized, "You are not logged in.")
-		}
-		_, ok := sess.Values["userID"]
-		if !ok {
+		uid, _, _ := getSession(c)
+		if uid == "-" {
 			return c.String(http.StatusUnauthorized, "You are not logged in.")
 		}
 
@@ -159,17 +150,8 @@ func (h *handlers) IsLoggedIn(next echo.HandlerFunc) echo.HandlerFunc {
 // IsAdmin admin確認用middleware
 func (h *handlers) IsAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		sess, err := session.Get(SessionName, c)
-		if err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-		isAdmin, ok := sess.Values["isAdmin"]
-		if !ok {
-			c.Logger().Error("failed to get isAdmin from session")
-			return c.NoContent(http.StatusInternalServerError)
-		}
-		if !isAdmin.(bool) {
+		_, _, isAdmin := getSession(c)
+		if !isAdmin {
 			return c.String(http.StatusForbidden, "You are not admin user.")
 		}
 
@@ -178,23 +160,8 @@ func (h *handlers) IsAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func getUserInfo(c echo.Context) (userID string, userName string, isAdmin bool, err error) {
-	sess, err := session.Get(SessionName, c)
-	if err != nil {
-		return "", "", false, err
-	}
-	_userID, ok := sess.Values["userID"]
-	if !ok {
-		return "", "", false, errors.New("failed to get userID from session")
-	}
-	_userName, ok := sess.Values["userName"]
-	if !ok {
-		return "", "", false, errors.New("failed to get userName from session")
-	}
-	_isAdmin, ok := sess.Values["isAdmin"]
-	if !ok {
-		return "", "", false, errors.New("failed to get isAdmin from session")
-	}
-	return _userID.(string), _userName.(string), _isAdmin.(bool), nil
+	userID, userName, isAdmin = getSession(c)
+	return userID, userName, isAdmin, nil
 }
 
 type UserType string
@@ -279,50 +246,18 @@ func (h *handlers) Login(c echo.Context) error {
 		return c.String(http.StatusUnauthorized, "Code or Password is wrong.")
 	}
 
-	sess, err := session.Get(SessionName, c)
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if userID, ok := sess.Values["userID"].(string); ok && userID == user.ID {
+	currentUID, _, _ := getSession(c)
+	if currentUID == user.ID {
 		return c.String(http.StatusBadRequest, "You are already logged in.")
 	}
 
-	sess.Values["userID"] = user.ID
-	sess.Values["userName"] = user.Name
-	sess.Values["isAdmin"] = user.Type == Teacher
-	sess.Options = &sessions.Options{
-		Path:   "/",
-		MaxAge: 3600,
-	}
-
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
+	setSession(c, user.ID, user.Name, user.Type == Teacher)
 	return c.NoContent(http.StatusOK)
 }
 
 // Logout POST /logout ログアウト
 func (h *handlers) Logout(c echo.Context) error {
-	sess, err := session.Get(SessionName, c)
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	sess.Options = &sessions.Options{
-		Path:   "/",
-		MaxAge: -1,
-	}
-
-	if err := sess.Save(c.Request(), c.Response()); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
+	removeSession(c)
 	return c.NoContent(http.StatusOK)
 }
 
