@@ -398,6 +398,8 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 		courseID := courseReq.ID
 		ok, course := h.getCourse(courseID)
 		if !ok {
+			c.Logger().Error("naiyo", ok, course, courseID)
+			c.Logger().Errorf("%+v", CourseCacheMap)
 			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
 			continue
 		}
