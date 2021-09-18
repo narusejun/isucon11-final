@@ -1,10 +1,10 @@
 #!/bin/bash -eux
 
+sudo cp -f home/isucon/env.sh /home/isucon/env.sh
 sudo cp -f etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/mysql.conf.d/mysqld.cnf
 sudo cp -f etc/nginx/nginx.conf /etc/nginx/nginx.conf
 sudo cp -f etc/nginx/sites-available/isucholar.conf /etc/nginx/sites-available/isucholar.conf
 sudo nginx -t
-# sudo cp -f home/isucon/env.sh /home/isucon/env.sh
 
 cd /home/isucon/webapp/go
 make build
