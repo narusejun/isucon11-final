@@ -15,6 +15,7 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 	mysqlConfig.Params = map[string]string{
 		"time_zone": "'+00:00'",
 	}
+	mysqlConfig.InterpolateParams = true
 	mysqlConfig.ParseTime = true
 	mysqlConfig.MultiStatements = batch
 
