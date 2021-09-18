@@ -690,22 +690,8 @@ func (h *handlers) GetGrades(c echo.Context) error {
 
 	// GPAの統計値
 	// 一つでも修了した科目がある学生のGPA一覧
-	var gpas []float64
-	query = "SELECT IFNULL(SUM(`user_course_total_scores`.`total_score` * `courses`.`credit`), 0) / 100 / `credits`.`credits` AS `gpa`" +
-		" FROM `users`" +
-		" JOIN (" +
-		"     SELECT `users`.`id` AS `user_id`, SUM(`courses`.`credit`) AS `credits`" +
-		"     FROM `users`" +
-		"     JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
-		"     JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` AND `courses`.`status` = ?" +
-		"     GROUP BY `users`.`id`" +
-		" ) AS `credits` ON `credits`.`user_id` = `users`.`id`" +
-		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
-		" JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` AND `courses`.`status` = ?" +
-		" LEFT JOIN `user_course_total_scores` ON `users`.`id` = `user_course_total_scores`.`user_id` AND `user_course_total_scores`.`course_id` = `courses`.`id`" +
-		" WHERE `users`.`type` = ?" +
-		" GROUP BY `users`.`id`"
-	if err := h.DB.Select(&gpas, query, StatusClosed, StatusClosed, Student); err != nil {
+	gpas, err := h.getGPAStats()
+	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
