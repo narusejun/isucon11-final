@@ -1404,7 +1404,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		sb.WriteString("','")
 		sb.WriteString(target.ID)
 		sb.WriteString("')")
-		if i < len(targets)-1 {
+		if i < len(targets) {
 			sb.WriteString(",")
 		}
 	}
