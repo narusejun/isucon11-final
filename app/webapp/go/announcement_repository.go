@@ -1,8 +1,9 @@
 package main
 
 import (
-	"golang.org/x/sync/singleflight"
 	"sync"
+
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -64,7 +65,7 @@ func (h *handlers) isUserRegistered(userID string, courseID string) (bool, error
 			return false, err
 		}
 		if registrationCount == 0 {
-			if _, c := h.getCourse(courseID); c.Status != StatusRegistration {
+			if _, c := h.getCourseFromDatabase(courseID); c.Status != StatusRegistration {
 				cources.courses[courseID] = false
 			}
 			return false, nil
@@ -96,4 +97,12 @@ func (h *handlers) getCourseIDByClassID(classID string) (string, error) {
 	classToCourseMap[classID] = class.CourseID
 	classToCourseMapMutex.Unlock()
 	return class.CourseID, nil
+}
+
+func (h *handlers) getCourseFromDatabase(courseID string) (bool, *Course) {
+	course := &Course{}
+	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
+		return false, nil
+	}
+	return true, course
 }
