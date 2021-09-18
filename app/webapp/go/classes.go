@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -13,11 +14,16 @@ type (
 )
 
 var (
+	mu *sync.RWMutex = &sync.RWMutex{}
+
 	classesEtag_uc map[string]map[string]*etag = make(map[string]map[string]*etag)
 	classesEtag_cu map[string]map[string]*etag = make(map[string]map[string]*etag)
 )
 
 func (h *handlers) setClassesEtag(courseID string, userID string) string {
+	mu.Lock()
+	defer mu.Unlock()
+
 	classesEtag_u, ok := classesEtag_cu[courseID]
 	if !ok {
 		classesEtag_u = make(map[string]*etag)
@@ -41,6 +47,9 @@ func (h *handlers) setClassesEtag(courseID string, userID string) string {
 	return etag.value
 }
 func (h *handlers) getClassesEtag(courseID string, userID string) string {
+	mu.RLock()
+	defer mu.RUnlock()
+
 	classesEtag_u, ok := classesEtag_cu[courseID]
 	if !ok {
 		return ""
@@ -59,6 +68,9 @@ func (h *handlers) getClassesEtag(courseID string, userID string) string {
 }
 
 func (h *handlers) discardClassesEtagByUser(userID string) {
+	mu.Lock()
+	defer mu.Unlock()
+
 	classesEtag_c, ok := classesEtag_uc[userID]
 	if !ok {
 		return
@@ -69,6 +81,9 @@ func (h *handlers) discardClassesEtagByUser(userID string) {
 	}
 }
 func (h *handlers) discardClassesEtagByCource(courceId string) {
+	mu.Lock()
+	defer mu.Unlock()
+
 	classesEtag_u, ok := classesEtag_cu[courceId]
 	if !ok {
 		return
