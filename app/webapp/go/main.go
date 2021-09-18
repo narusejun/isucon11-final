@@ -790,7 +790,8 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	CourseCacheMux.RUnlock()
 
 	course := &Course{}
-	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
+	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
+		fmt.Printf("%+v\n", err)
 		return false, nil
 	}
 	CourseCacheMux.Lock()
@@ -1024,7 +1025,7 @@ func (h *handlers) getClass(classID string) (bool, *Class) {
 	ClassCacheMux.RUnlock()
 
 	class := &Class{}
-	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", classID); err != nil {
+	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
 		return false, nil
 	}
 	ClassCacheMux.Lock()
