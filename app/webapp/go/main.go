@@ -193,6 +193,11 @@ func (h *handlers) Initialize(c echo.Context) error {
 	ClassCacheMux.Lock()
 	ClassCacheMap = make(map[string]*Class)
 	ClassCacheMux.Unlock()
+
+	ClassSubmissionMux.Lock()
+	ClassSubmissionCache = make(map[string]struct{})
+	ClassSubmissionMux.Unlock()
+
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -1029,6 +1034,24 @@ type GetClassResponse struct {
 	Submitted        bool   `json:"submitted"`
 }
 
+var (
+	ClassSubmissionCache = make(map[string]struct{})
+	ClassSubmissionMux = sync.RWMutex{}
+)
+
+func (h *handlers) isSubmit(classID string, userID string) bool {
+	ClassSubmissionMux.RLock()
+	_, ok := ClassSubmissionCache[classID + "/" + userID]
+	ClassSubmissionMux.RUnlock()
+	return ok
+}
+
+func (h *handlers) submit(classID string, userID string) {
+	ClassSubmissionMux.Lock()
+	ClassSubmissionCache[classID + "/" + userID] = struct{}{}
+	ClassSubmissionMux.Unlock()
+}
+
 // GetClasses GET /api/courses/:courseID/classes 科目に紐づく講義一覧の取得
 func (h *handlers) GetClasses(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
@@ -1050,12 +1073,11 @@ func (h *handlers) GetClasses(c echo.Context) error {
 	}
 
 	var classes []ClassWithSubmitted
-	query := "SELECT `classes`.*, `submissions`.`user_id` IS NOT NULL AS `submitted`" +
+	query := "SELECT `classes`.*" +
 		" FROM `classes`" +
-		" LEFT JOIN `submissions` ON `classes`.`id` = `submissions`.`class_id` AND `submissions`.`user_id` = ?" +
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
-	if err := h.DB.Select(&classes, query, userID, courseID); err != nil {
+	if err := h.DB.Select(&classes, query, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1069,7 +1091,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 			Title:            class.Title,
 			Description:      class.Description,
 			SubmissionClosed: class.SubmissionClosed,
-			Submitted:        class.Submitted,
+			Submitted:        h.isSubmit(class.ID, userID),
 		})
 	}
 
@@ -1224,6 +1246,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	h.submit(classID, userID)
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
 	fd, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE, 0666)
