@@ -15,7 +15,8 @@ func GetDB(batch bool) (*sqlx.DB, error) {
 
 	mysqlConfig.ParseTime = true
 	mysqlConfig.MultiStatements = batch
-	mysqlConfig.InterpolateParams = true
+	// 必要なら
+	// mysqlConfig.InterpolateParams = true
 
 	return sqlx.Open("mysql", mysqlConfig.FormatDSN())
 }
