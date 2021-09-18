@@ -542,8 +542,8 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// 自分が提出した全サブミッション取得
 	query = "SELECT `class_id`, `score` FROM `submissions` WHERE `user_id` = ?"
 	type scoreS struct {
-		ClassId string        `sql:"class_id"`
-		Score   sql.NullInt64 `sql:"score"`
+		ClassId string        `db:"class_id"`
+		Score   sql.NullInt64 `db:"score"`
 	}
 	var myScores []scoreS
 	if err := h.DB.Select(&myScores, query, userID); err != nil {
