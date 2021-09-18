@@ -786,7 +786,6 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	}
 	CourseCacheMux.RUnlock()
 
-
 	course := &Course{}
 	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
 		return false, nil
@@ -959,17 +958,15 @@ func (h *handlers) GetClasses(c echo.Context) error {
 
 	courseID := c.Param("courseID")
 
+	etag := h.getClassesEtag(courseID, userID)
+	if etag != "" && c.Request().Header.Get("If-None-Match") == etag {
+		return c.NoContent(http.StatusNotModified)
+	}
+
 	ok, _ := h.getCourse(courseID)
 	if !ok {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
-
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
 
 	var classes []ClassWithSubmitted
 	query := "SELECT `classes`.*, `submissions`.`user_id` IS NOT NULL AS `submitted`" +
@@ -977,12 +974,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		" LEFT JOIN `submissions` ON `classes`.`id` = `submissions`.`class_id` AND `submissions`.`user_id` = ?" +
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
-	if err := tx.Select(&classes, query, userID, courseID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if err := tx.Commit(); err != nil {
+	if err := h.DB.Select(&classes, query, userID, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1000,6 +992,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		})
 	}
 
+	c.Response().Header().Set("ETag", h.setClassesEtag(courseID, userID))
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -1018,7 +1011,7 @@ var (
 	ClassCacheMux = sync.RWMutex{}
 )
 
-func (h *handlers) getClass(classID string) (bool, *Class){
+func (h *handlers) getClass(classID string) (bool, *Class) {
 	ClassCacheMux.RLock()
 
 	if class, ok := ClassCacheMap[classID]; ok {
@@ -1026,7 +1019,6 @@ func (h *handlers) getClass(classID string) (bool, *Class){
 		return true, class
 	}
 	ClassCacheMux.RUnlock()
-
 
 	class := &Class{}
 	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", classID); err != nil {
@@ -1046,7 +1038,6 @@ func (h *handlers) AddClass(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
-
 
 	ok, course := h.getCourse(courseID)
 	if !ok {
@@ -1101,6 +1092,7 @@ func (h *handlers) AddClass(c echo.Context) error {
 	ClassCacheMap[classID] = class
 	ClassCacheMux.Unlock()
 
+	h.discardClassesEtagByCource(courseID)
 	return c.JSON(http.StatusCreated, AddClassResponse{ClassID: classID})
 }
 
@@ -1191,14 +1183,12 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
 
-
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-
 
 	// TODO 一発でできる
 	for _, score := range req {
@@ -1224,8 +1214,8 @@ type Submission struct {
 
 // DownloadSubmittedAssignments GET /api/courses/:courseID/classes/:classID/assignments/export 提出済みの課題ファイルをzip形式で一括ダウンロード
 func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
+	courseID := c.Param("courseID")
 	classID := c.Param("classID")
-
 
 	ok, class := h.getClass(classID)
 	if !ok {
@@ -1265,6 +1255,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	}
 	class.SubmissionClosed = true
 
+	h.discardClassesEtagByCource(courseID)
 	return c.File(zipFilePath)
 }
 
