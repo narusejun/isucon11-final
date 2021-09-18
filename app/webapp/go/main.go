@@ -1200,8 +1200,8 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	defer tx.Rollback()
 
 	// TODO 一発でできる
-	query :=  strings.Repeat("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = " + classID + ";", len(req))
-	args := make([]interface{}, 3 * len(req))
+	query :=  strings.Repeat("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = \"" + classID + "\";", len(req))
+	args := make([]interface{}, 2 * len(req))
 
 	for i := 0; i < len(req); i++ {
 		args[i] = req[i].Score
