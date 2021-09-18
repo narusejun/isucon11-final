@@ -32,6 +32,15 @@ const (
 	mysqlErrNumDuplicateEntry = 1062
 )
 
+var (
+	pool = &sync.Pool{
+		New: func() interface{} {
+			s := make([]byte, 16*1024*1024)
+			return &s
+		},
+	}
+)
+
 type handlers struct {
 	DB *sqlx.DB
 }
@@ -1150,7 +1159,11 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if _, err := io.Copy(fd, file); err != nil {
+
+	buf := pool.Get().(*[]byte)
+	defer pool.Put(buf)
+
+	if _, err := io.CopyBuffer(fd, file, *buf); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1183,16 +1196,16 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 
 	// TODO 一発でできる
-	args := make([]interface{}, 3 * len(req) + 1)
+	args := make([]interface{}, 3*len(req)+1)
 
 	for i := 0; i < len(req); i++ {
 		args[i] = req[i].UserCode
-		args[len(req) + i] = req[i].Score
-		args[2*len(req) + i] = req[i].UserCode
+		args[len(req)+i] = req[i].Score
+		args[2*len(req)+i] = req[i].UserCode
 	}
 	args[3*len(req)] = classID
 
-	if _, err := h.DB.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`" + strings.Repeat(", ?", len(req)) + "), ?" + strings.Repeat(", ?", len(req)-1) + ") WHERE `users`.`code` IN(?" + strings.Repeat(", ?", len(req)-1) + ") AND `class_id` = ?", args...); err != nil {
+	if _, err := h.DB.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ELT(FIELD(`users`.`code`"+strings.Repeat(", ?", len(req))+"), ?"+strings.Repeat(", ?", len(req)-1)+") WHERE `users`.`code` IN(?"+strings.Repeat(", ?", len(req)-1)+") AND `class_id` = ?", args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
