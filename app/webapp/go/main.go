@@ -137,6 +137,10 @@ func (h *handlers) Initialize(c echo.Context) error {
 	CourseCacheMux.Lock()
 	CourseCacheMap = make(map[string]*Course)
 	CourseCacheMux.Unlock()
+
+	ClassCacheMux.Lock()
+	ClassCacheMap = make(map[string]*Class)
+	ClassCacheMux.Unlock()
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -1009,6 +1013,31 @@ type AddClassResponse struct {
 	ClassID string `json:"class_id"`
 }
 
+var (
+	ClassCacheMap = make(map[string]*Class)
+	ClassCacheMux = sync.RWMutex{}
+)
+
+func (h *handlers) getClass(classID string) (bool, *Class){
+	ClassCacheMux.RLock()
+
+	if class, ok := ClassCacheMap[classID]; ok {
+		ClassCacheMux.RUnlock()
+		return true, class
+	}
+	ClassCacheMux.RUnlock()
+
+
+	class := &Class{}
+	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", class); err != nil {
+		return false, nil
+	}
+	ClassCacheMux.Lock()
+	ClassCacheMap[classID] = class
+	ClassCacheMux.Unlock()
+	return true, class
+}
+
 // AddClass POST /api/courses/:courseID/classes 新規講義(&課題)追加
 func (h *handlers) AddClass(c echo.Context) error {
 	courseID := c.Param("courseID")
@@ -1024,6 +1053,10 @@ func (h *handlers) AddClass(c echo.Context) error {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
 
+	if course.Status != StatusInProgress {
+		return c.String(http.StatusBadRequest, "This course is not in-progress.")
+	}
+
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
@@ -1031,11 +1064,16 @@ func (h *handlers) AddClass(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	if course.Status != StatusInProgress {
-		return c.String(http.StatusBadRequest, "This course is not in-progress.")
+	classID := newULID()
+	class := &Class{
+		ID:               classID,
+		CourseID:         courseID,
+		Part:             req.Part,
+		Title:            req.Title,
+		Description:      req.Description,
+		SubmissionClosed: false,
 	}
 
-	classID := newULID()
 	if _, err := tx.Exec("INSERT INTO `classes` (`id`, `course_id`, `part`, `title`, `description`) VALUES (?, ?, ?, ?, ?)",
 		classID, courseID, req.Part, req.Title, req.Description); err != nil {
 		_ = tx.Rollback()
@@ -1058,6 +1096,10 @@ func (h *handlers) AddClass(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	ClassCacheMux.Lock()
+	ClassCacheMap[classID] = class
+	ClassCacheMux.Unlock()
 
 	return c.JSON(http.StatusCreated, AddClassResponse{ClassID: classID})
 }
@@ -1082,16 +1124,9 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "This course is not in progress.")
 	}
 
-
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
-
 	var registrationCount int
-	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
+	// TODO
+	if err := h.DB.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1099,14 +1134,11 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "You have not taken this course.")
 	}
 
-	var submissionClosed bool
-	if err := tx.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ? FOR SHARE", classID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	} else if err == sql.ErrNoRows {
+	ok, class := h.getClass(classID)
+	if !ok {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
-	if submissionClosed {
+	if class.SubmissionClosed {
 		return c.String(http.StatusBadRequest, "Submission has been closed for this class.")
 	}
 
@@ -1116,7 +1148,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 	defer file.Close()
 
-	if _, err := tx.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
+	if _, err := h.DB.Exec("INSERT INTO `submissions` (`user_id`, `class_id`, `file_name`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `file_name` = VALUES(`file_name`)", userID, classID, header.Filename); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1128,11 +1160,6 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	if _, err := io.Copy(fd, file); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if err := tx.Commit(); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1149,22 +1176,13 @@ type Score struct {
 func (h *handlers) RegisterScores(c echo.Context) error {
 	classID := c.Param("classID")
 
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
+	ok, class := h.getClass(classID)
 
-	var submissionClosed bool
-	if err := tx.Get(&submissionClosed, "SELECT `submission_closed` FROM `classes` WHERE `id` = ? FOR SHARE", classID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	} else if err == sql.ErrNoRows {
+	if !ok {
 		return c.String(http.StatusNotFound, "No such class.")
 	}
 
-	if !submissionClosed {
+	if !class.SubmissionClosed {
 		return c.String(http.StatusBadRequest, "This assignment is not closed yet.")
 	}
 
@@ -1173,6 +1191,16 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
 
+
+	tx, err := h.DB.Beginx()
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer tx.Rollback()
+
+
+	// TODO 一発でできる
 	for _, score := range req {
 		if _, err := tx.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
 			c.Logger().Error(err)
@@ -1198,21 +1226,18 @@ type Submission struct {
 func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 	classID := c.Param("classID")
 
+
+	ok, class := h.getClass(classID)
+	if !ok {
+		return c.String(http.StatusNotFound, "No such class.")
+	}
+
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-
-	var classCount int
-	if err := tx.Get(&classCount, "SELECT COUNT(*) FROM `classes` WHERE `id` = ? LIMIT 1 FOR UPDATE", classID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if classCount == 0 {
-		return c.String(http.StatusNotFound, "No such class.")
-	}
 	var submissions []Submission
 	query := "SELECT `submissions`.`user_id`, `submissions`.`file_name`, `users`.`code` AS `user_code`" +
 		" FROM `submissions`" +
@@ -1238,6 +1263,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	class.SubmissionClosed = true
 
 	return c.File(zipFilePath)
 }
