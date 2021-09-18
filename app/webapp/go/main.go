@@ -25,7 +25,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
-	echoInt "github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -125,8 +124,6 @@ func main() {
 	e.HideBanner = true
 	e.JSONSerializer = &DefaultJSONSerializer{}
 
-	echoInt.Integrate(e)
-
 	// e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
@@ -177,7 +174,7 @@ func main() {
 		}
 	}
 
-	if (GetEnv("USE_SOCKET", "0") == "1") {
+	if GetEnv("USE_SOCKET", "0") == "1" {
 		// ここからソケット接続設定 ---
 		socket_file := "/var/run/app.sock"
 		os.Remove(socket_file)
