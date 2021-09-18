@@ -74,3 +74,26 @@ func (h *handlers) isUserRegistered(userID string, courseID string) (bool, error
 	}
 	return registered, nil
 }
+
+var (
+	classToCourseMap      = map[string]string{}
+	classToCourseMapMutex sync.RWMutex
+)
+
+func (h *handlers) getCourseIDByClassID(classID string) (string, error) {
+	classToCourseMapMutex.RLock()
+	id, ok := classToCourseMap[classID]
+	classToCourseMapMutex.RUnlock()
+	if ok {
+		return id, nil
+	}
+
+	class := Class{}
+	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", classID); err != nil {
+		return "", err
+	}
+	classToCourseMapMutex.Lock()
+	classToCourseMap[classID] = class.CourseID
+	classToCourseMapMutex.Unlock()
+	return class.CourseID, nil
+}

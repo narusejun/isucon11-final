@@ -1474,29 +1474,38 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 
 	announcementID := c.Param("announcementID")
 
-	var announcement AnnouncementDetail
-	query := "SELECT `announcements`.`id`, `courses`.`id` AS `course_id`, `courses`.`name` AS `course_name`, `announcements`.`title`, `announcements`.`message`, NOT `unread_announcements`.`is_deleted` AS `unread`" +
-		" FROM `announcements`" +
-		" JOIN `courses` ON `courses`.`id` = `announcements`.`course_id`" +
-		" JOIN `unread_announcements` ON `unread_announcements`.`announcement_id` = `announcements`.`id`" +
-		" WHERE `announcements`.`id` = ?" +
-		" AND `unread_announcements`.`user_id` = ?" +
-		" AND EXISTS (SELECT * FROM `registrations` WHERE `course_id` = `courses`.`id` AND `user_id` = ?)"
-	if err := h.DB.Get(&announcement, query, announcementID, userID, userID); err != nil && err != sql.ErrNoRows {
+	announcementDetail, err := h.getAnnouncementDetail(announcementID)
+	if err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such announcement.")
 	}
 
+	ok, err := h.isUserRegistered(userID, announcementDetail.CourseID)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	if !ok {
+		return c.String(http.StatusNotFound, "No such announcement.")
+	}
+
+	var unread bool
+	if err := h.DB.Get(&unread, "SELECT NOT `unread_announcements`.`is_deleted` AS `unread` FROM `unread_announcements` WHERE `unread_announcements`.`announcement_id` = ? AND `unread_announcements`.`user_id` = ?", announcementID, userID); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	announcementDetail.Unread = unread
+
 	if _, err := h.DB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	if !announcement.Unread {
+	if !announcementDetail.Unread {
 		c.Response().Header().Set("Cache-Control", "max-age=86400")
 	}
 
-	return c.JSON(http.StatusOK, announcement)
+	return c.JSON(http.StatusOK, announcementDetail)
 }
