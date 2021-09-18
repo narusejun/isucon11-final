@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -132,6 +133,10 @@ func (h *handlers) Initialize(c echo.Context) error {
 	res := InitializeResponse{
 		Language: "go",
 	}
+
+	CourseCacheMux.Lock()
+	CourseCacheMap = make(map[string]*Course)
+	CourseCacheMux.Unlock()
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -386,11 +391,8 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 	var newlyAdded []Course
 	for _, courseReq := range req {
 		courseID := courseReq.ID
-		var course Course
-		if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		} else if err == sql.ErrNoRows {
+		ok, course := h.getCourse(courseID)
+		if !ok {
 			errors.CourseNotFound = append(errors.CourseNotFound, courseReq.ID)
 			continue
 		}
@@ -410,7 +412,7 @@ func (h *handlers) RegisterCourses(c echo.Context) error {
 			continue
 		}
 
-		newlyAdded = append(newlyAdded, course)
+		newlyAdded = append(newlyAdded, *course)
 	}
 
 	var alreadyRegistered []Course
@@ -766,6 +768,31 @@ type AddCourseResponse struct {
 	ID string `json:"id"`
 }
 
+var (
+	CourseCacheMap = make(map[string]*Course)
+	CourseCacheMux = sync.RWMutex{}
+)
+
+func (h *handlers) getCourse(courseID string) (bool, *Course) {
+	CourseCacheMux.RLock()
+
+	if course, ok := CourseCacheMap[courseID]; ok {
+		CourseCacheMux.RUnlock()
+		return true, course
+	}
+	CourseCacheMux.RUnlock()
+
+
+	course := &Course{}
+	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
+		return false, nil
+	}
+	CourseCacheMux.Lock()
+	CourseCacheMap[courseID] = course
+	CourseCacheMux.Unlock()
+	return true, course
+}
+
 // AddCourse POST /api/courses 新規科目登録
 func (h *handlers) AddCourse(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
@@ -787,6 +814,20 @@ func (h *handlers) AddCourse(c echo.Context) error {
 	}
 
 	courseID := newULID()
+	course := &Course{
+		ID:          courseID,
+		Code:        req.Code,
+		Type:        req.Type,
+		Name:        req.Name,
+		Description: req.Description,
+		Credit:      uint8(req.Credit),
+		Period:      uint8(req.Period),
+		DayOfWeek:   req.DayOfWeek,
+		TeacherID:   userID,
+		Keywords:    req.Keywords,
+		Status:      StatusRegistration,
+	}
+
 	_, err = h.DB.Exec("INSERT INTO `courses` (`id`, `code`, `type`, `name`, `description`, `credit`, `period`, `day_of_week`, `teacher_id`, `keywords`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		courseID, req.Code, req.Type, req.Name, req.Description, req.Credit, req.Period, req.DayOfWeek, userID, req.Keywords)
 	if err != nil {
@@ -804,6 +845,10 @@ func (h *handlers) AddCourse(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	CourseCacheMux.Lock()
+	CourseCacheMap[courseID] = course
+	CourseCacheMux.Unlock()
 
 	return c.JSON(http.StatusCreated, AddCourseResponse{ID: courseID})
 }
@@ -855,21 +900,17 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
 
+	ok, course := h.getCourse(courseID)
+	if !ok {
+		return c.String(http.StatusNotFound, "No such course.")
+	}
+
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-
-	var count int
-	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ? LIMIT 1 FOR UPDATE", courseID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if count == 0 {
-		return c.String(http.StatusNotFound, "No such course.")
-	}
 
 	if _, err := tx.Exec("UPDATE `courses` SET `status` = ? WHERE `id` = ?", req.Status, courseID); err != nil {
 		c.Logger().Error(err)
@@ -880,6 +921,7 @@ func (h *handlers) SetCourseStatus(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	course.Status = req.Status
 
 	return c.NoContent(http.StatusOK)
 }
@@ -913,21 +955,17 @@ func (h *handlers) GetClasses(c echo.Context) error {
 
 	courseID := c.Param("courseID")
 
+	ok, _ := h.getCourse(courseID)
+	if !ok {
+		return c.String(http.StatusNotFound, "No such course.")
+	}
+
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-
-	var count int
-	if err := tx.Get(&count, "SELECT COUNT(*) FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if count == 0 {
-		return c.String(http.StatusNotFound, "No such course.")
-	}
 
 	var classes []ClassWithSubmitted
 	query := "SELECT `classes`.*, `submissions`.`user_id` IS NOT NULL AS `submitted`" +
@@ -980,6 +1018,12 @@ func (h *handlers) AddClass(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
 
+
+	ok, course := h.getCourse(courseID)
+	if !ok {
+		return c.String(http.StatusNotFound, "No such course.")
+	}
+
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
@@ -987,13 +1031,6 @@ func (h *handlers) AddClass(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var course Course
-	if err := tx.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	} else if err == sql.ErrNoRows {
-		return c.String(http.StatusNotFound, "No such course.")
-	}
 	if course.Status != StatusInProgress {
 		return c.String(http.StatusBadRequest, "This course is not in-progress.")
 	}
@@ -1036,23 +1073,22 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	courseID := c.Param("courseID")
 	classID := c.Param("classID")
 
+	ok, course := h.getCourse(courseID)
+	if !ok {
+		return c.String(http.StatusNotFound, "No such course.")
+	}
+
+	if course.Status != StatusInProgress {
+		return c.String(http.StatusBadRequest, "This course is not in progress.")
+	}
+
+
 	tx, err := h.DB.Beginx()
 	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
-
-	var status CourseStatus
-	if err := tx.Get(&status, "SELECT `status` FROM `courses` WHERE `id` = ? FOR SHARE", courseID); err != nil && err != sql.ErrNoRows {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	} else if err == sql.ErrNoRows {
-		return c.String(http.StatusNotFound, "No such course.")
-	}
-	if status != StatusInProgress {
-		return c.String(http.StatusBadRequest, "This course is not in progress.")
-	}
 
 	var registrationCount int
 	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
