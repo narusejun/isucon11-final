@@ -88,8 +88,9 @@ CREATE TABLE `unread_announcements`
 
 CREATE TABLE `user_course_total_scores`
 (
-    `user_id`      CHAR(26) NOT NULL,
-    `course_id`    CHAR(26) NOT NULL,
+    `user_id`     CHAR(26) NOT NULL,
+    `course_id`   CHAR(26) NOT NULL,
     `total_score` INT      NOT NULL,
-    PRIMARY KEY (`user_id`, `course_id`)
+    PRIMARY KEY (`user_id`, `course_id`),
+    INDEX (`course_id`)
 );
