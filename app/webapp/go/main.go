@@ -53,7 +53,7 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
-	db, _ := GetDB(false)
+	db, _ := GetDB(true)
 	db.SetMaxOpenConns(200)
 
 	h := &handlers{
@@ -1199,13 +1199,18 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-
 	// TODO 一発でできる
-	for _, score := range req {
-		if _, err := tx.Exec("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = ?", score.Score, score.UserCode, classID); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
+	query :=  strings.Repeat("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = " + classID + ";", len(req))
+	args := make([]interface{}, 3 * len(req))
+
+	for i := 0; i < len(req); i++ {
+		args[i] = req[i].Score
+		args[i+1] = req[i].UserCode
+	}
+
+	if _, err := tx.Exec(query, args...); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	if err := tx.Commit(); err != nil {
