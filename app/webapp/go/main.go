@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -41,6 +42,18 @@ const (
 type handlers struct {
 	DB    *sqlx.DB
 	SubDB *sqlx.DB
+}
+
+var (
+	x int64
+)
+
+func (h *handlers) Balance() *sqlx.DB {
+	if atomic.AddInt64(&x, 1)%2 == 0 {
+		return h.DB
+	} else {
+		return h.SubDB
+	}
 }
 
 // DefaultJSONSerializer implements JSON encoding using encoding/json.
