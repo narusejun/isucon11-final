@@ -106,13 +106,13 @@ func main() {
 	}
 
 	e := echo.New()
-	e.Debug = GetEnv("DEBUG", "") == "true"
+	// e.Debug = GetEnv("DEBUG", "") == "true"
 	e.HideBanner = true
 	e.JSONSerializer = &DefaultJSONSerializer{}
 
 	echoInt.Integrate(e)
 
-	//e.Use(middleware.Logger())
+	// e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
 
