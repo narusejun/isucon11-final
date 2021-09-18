@@ -6,10 +6,10 @@ sudo cp -f etc/nginx/nginx.conf /etc/nginx/nginx.conf
 sudo cp -f etc/nginx/sites-available/isucholar.conf /etc/nginx/sites-available/isucholar.conf
 sudo nginx -t
 
-cd /home/isucon/webapp/go
-make build
+# cd /home/isucon/webapp/go
+# make build
 
-sudo systemctl restart isucholar.go
+# sudo systemctl restart isucholar.go
 sudo systemctl restart nginx
 sudo systemctl restart mysql
 
