@@ -14,12 +14,12 @@ sudo nginx -t
 sudo systemctl restart mysql
 
 
-# slow query logを有効化する
-# QUERY="
-#  set global slow_query_log_file = '/var/log/mysql/mysql-slow.log';
-#  set global long_query_time = 0;
-#  set global slow_query_log = ON;
-# "
+slow query logを有効化する
+QUERY="
+ set global slow_query_log_file = '/var/log/mysql/mysql-slow.log';
+ set global long_query_time = 0;
+ set global slow_query_log = ON;
+"
 
 # echo $QUERY | sudo mysql -uroot
 
