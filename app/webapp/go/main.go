@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"net/http"
 	"net/url"
@@ -1263,29 +1264,23 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 	}
 
 	// ファイル名を指定の形式に変更
+	eg := errgroup.Group{}
 	for _, submission := range submissions {
-		err := func() error {
-			src, err := os.Open(AssignmentsDirectory+classID+"-"+submission.UserID+".pdf")
-			if err != nil {
-				return err
-			}
-			defer src.Close()
-
-			dst, err := os.Create(tmpDir+submission.UserCode+"-"+submission.FileName)
-			if err != nil {
-				return err
-			}
-			defer dst.Close()
-
-			if _, err := io.Copy(dst, src); err != nil {
-				return err
-			}
-
-			return nil
-		}()
-		if err != nil {
-			return err
-		}
+		eg.Go(
+			func() error {
+				if err := exec.Command(
+					"cp",
+					AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
+					tmpDir+submission.UserCode+"-"+submission.FileName,
+				).Run(); err != nil {
+					return err
+				}
+			  	return nil
+			},
+		)
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	// -i 'tmpDir/*': 空zipを許す
