@@ -1,4 +1,5 @@
 -- CREATEと逆順
+DROP TABLE IF EXISTS `user_course_total_scores`;
 DROP TABLE IF EXISTS `unread_announcements`;
 DROP TABLE IF EXISTS `announcements`;
 DROP TABLE IF EXISTS `submissions`;
