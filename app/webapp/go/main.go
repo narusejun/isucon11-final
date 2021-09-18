@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -36,6 +37,11 @@ type handlers struct {
 }
 
 func main() {
+	var err error
+	if time.Local, err = time.LoadLocation("UTC"); err != nil {
+		panic(err)
+	}
+
 	e := echo.New()
 	e.Debug = GetEnv("DEBUG", "") == "true"
 	e.Server.Addr = fmt.Sprintf(":%v", GetEnv("PORT", "7000"))
