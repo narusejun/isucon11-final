@@ -14,7 +14,7 @@ func (h *handlers) getTotalScores(courseID string) ([]int, error) {
 		// この科目を履修している学生のTotalScore一覧を取得
 		var totals []int
 		query := "SELECT total_score FROM user_course_total_scores WHERE course_id = ?"
-		if err := h.DB.Select(&totals, query, courseID); err != nil {
+		if err := h.Balance().Select(&totals, query, courseID); err != nil {
 			return nil, err
 		}
 
@@ -43,7 +43,7 @@ func (h *handlers) getGPAStats() ([]float64, error) {
 			" LEFT JOIN `user_course_total_scores` ON `users`.`id` = `user_course_total_scores`.`user_id` AND `user_course_total_scores`.`course_id` = `courses`.`id`" +
 			" WHERE `users`.`type` = ?" +
 			" GROUP BY `users`.`id`"
-		if err := h.DB.Select(&gpas, query, StatusClosed, StatusClosed, Student); err != nil {
+		if err := h.Balance().Select(&gpas, query, StatusClosed, StatusClosed, Student); err != nil {
 			return nil, err
 		}
 		return gpas, nil

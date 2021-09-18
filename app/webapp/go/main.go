@@ -250,7 +250,7 @@ func (h *handlers) Initialize(c echo.Context) error {
 		" LEFT JOIN `classes` ON `courses`.`id` = `classes`.`course_id`" +
 		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
 		" GROUP BY `courses`.`id`, `users`.`id`"
-	if err := h.DB.Select(&totals, query); err != nil {
+	if err := h.Balance().Select(&totals, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -384,7 +384,7 @@ func (h *handlers) Login(c echo.Context) error {
 	}
 
 	var user User
-	if err := h.DB.Get(&user, "SELECT * FROM `users` WHERE `code` = ?", req.Code); err != nil && err != sql.ErrNoRows {
+	if err := h.Balance().Get(&user, "SELECT * FROM `users` WHERE `code` = ?", req.Code); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
@@ -427,7 +427,7 @@ func (h *handlers) GetMe(c echo.Context) error {
 	}
 
 	var userCode string
-	if err := h.DB.Get(&userCode, "SELECT `code` FROM `users` WHERE `id` = ?", userID); err != nil {
+	if err := h.Balance().Get(&userCode, "SELECT `code` FROM `users` WHERE `id` = ?", userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -653,7 +653,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// 履修している科目一覧取得
 	var registeredCourses []Course
 	query := "SELECT `courses`.* FROM `registrations` JOIN `courses` ON `registrations`.`course_id` = `courses`.`id` WHERE `user_id` = ?"
-	if err := h.DB.Select(&registeredCourses, query, userID); err != nil {
+	if err := h.Balance().Select(&registeredCourses, query, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -673,7 +673,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	// 自分が参加した全class取得
 	var classes []Class
 	query = "SELECT * FROM `classes` WHERE `course_id` IN (" + sb.String() + ") ORDER BY `course_id`, `part` DESC"
-	if err := h.DB.Select(&classes, query); err != nil {
+	if err := h.Balance().Select(&classes, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -685,7 +685,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 	}
 	var totals []totalS
 	query = "SELECT course_id, total_score FROM user_course_total_scores WHERE `course_id` IN (" + sb.String() + ")"
-	if err := h.DB.Select(&totals, query); err != nil {
+	if err := h.Balance().Select(&totals, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -701,7 +701,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		Score   sql.NullInt64 `db:"score"`
 	}
 	var myScores []scoreS
-	if err := h.DB.Select(&myScores, query, userID); err != nil {
+	if err := h.Balance().Select(&myScores, query, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -726,7 +726,7 @@ func (h *handlers) GetGrades(c echo.Context) error {
 		Count   int    `db:"count"`
 	}
 	var submissions []submissionS
-	if err := h.DB.Select(&submissions, query); err != nil {
+	if err := h.Balance().Select(&submissions, query); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -889,7 +889,7 @@ func (h *handlers) SearchCourses(c echo.Context) error {
 
 	// 結果が0件の時は空配列を返却
 	res := make([]GetCourseDetailResponse, 0)
-	if err := h.DB.Select(&res, query+condition, args...); err != nil {
+	if err := h.Balance().Select(&res, query+condition, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -953,7 +953,7 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	CourseCacheMux.RUnlock()
 
 	course := &Course{}
-	if err := h.DB.Get(course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
+	if err := h.Balance().Get(course, "SELECT * FROM `courses` WHERE `id` = ?", courseID); err != nil {
 		return false, nil
 	}
 	CourseCacheMux.Lock()
@@ -1004,7 +1004,7 @@ func (h *handlers) AddCourse(c echo.Context) error {
 	if err != nil {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var course Course
-			if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `code` = ?", req.Code); err != nil {
+			if err := h.Balance().Get(&course, "SELECT * FROM `courses` WHERE `code` = ?", req.Code); err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
@@ -1048,7 +1048,7 @@ func (h *handlers) GetCourseDetail(c echo.Context) error {
 		" FROM `courses`" +
 		" JOIN `users` ON `courses`.`teacher_id` = `users`.`id`" +
 		" WHERE `courses`.`id` = ?"
-	if err := h.DB.Get(&res, query, courseID); err != nil && err != sql.ErrNoRows {
+	if err := h.Balance().Get(&res, query, courseID); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
@@ -1163,7 +1163,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		" FROM `classes`" +
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
-	if err := h.DB.Select(&classes, query, courseID); err != nil {
+	if err := h.Balance().Select(&classes, query, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1210,7 +1210,7 @@ func (h *handlers) getClass(classID string) (bool, *Class) {
 	ClassCacheMux.RUnlock()
 
 	class := &Class{}
-	if err := h.DB.Get(class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
+	if err := h.Balance().Get(class, "SELECT * FROM `classes` WHERE `id` = ?", classID); err != nil {
 		return false, nil
 	}
 	ClassCacheMux.Lock()
@@ -1261,7 +1261,7 @@ func (h *handlers) AddClass(c echo.Context) error {
 		_ = tx.Rollback()
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var class Class
-			if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `course_id` = ? AND `part` = ?", courseID, req.Part); err != nil {
+			if err := h.Balance().Get(&class, "SELECT * FROM `classes` WHERE `course_id` = ? AND `part` = ?", courseID, req.Part); err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}
@@ -1410,7 +1410,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
 		" WHERE `courses`.`id` = ?" +
 		" GROUP BY `courses`.`id`, `users`.`id`"
-	if err := h.DB.Select(&totals, query, class.CourseID); err != nil {
+	if err := h.Balance().Select(&totals, query, class.CourseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1610,13 +1610,13 @@ func (h *handlers) GetAnnouncementList(c echo.Context) error {
 	// limitより多く上限を設定し、実際にlimitより多くレコードが取得できた場合は次のページが存在する
 	args = append(args, limit+1, offset)
 
-	if err := h.DB.Select(&announcements, query, args...); err != nil {
+	if err := h.Balance().Select(&announcements, query, args...); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	var unreadCount int
-	if err := h.DB.Get(&unreadCount, "SELECT COUNT(*) FROM `unread_announcements` WHERE `user_id` = ? AND NOT `is_deleted`", userID); err != nil {
+	if err := h.Balance().Get(&unreadCount, "SELECT COUNT(*) FROM `unread_announcements` WHERE `user_id` = ? AND NOT `is_deleted`", userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1699,7 +1699,7 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		_ = tx.Rollback()
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok && mysqlErr.Number == uint16(mysqlErrNumDuplicateEntry) {
 			var announcement Announcement
-			if err := h.DB.Get(&announcement, "SELECT * FROM `announcements` WHERE `id` = ?", req.ID); err != nil {
+			if err := h.Balance().Get(&announcement, "SELECT * FROM `announcements` WHERE `id` = ?", req.ID); err != nil {
 				c.Logger().Error(err)
 				return c.NoContent(http.StatusInternalServerError)
 			}

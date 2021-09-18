@@ -1,8 +1,9 @@
 package main
 
 import (
-	"golang.org/x/sync/singleflight"
 	"sync"
+
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -21,7 +22,7 @@ func (h *handlers) getAnnouncementDetail(ID string) (AnnouncementDetail, error) 
 			" FROM `announcements`" +
 			" JOIN `courses` ON `courses`.`id` = `announcements`.`course_id`" +
 			" WHERE `announcements`.`id` = ?"
-		if err := h.DB.Get(&announcement, query, ID); err != nil {
+		if err := h.Balance().Get(&announcement, query, ID); err != nil {
 			return nil, err
 		}
 		announcementMap.Store(ID, announcement)
@@ -60,7 +61,7 @@ func (h *handlers) isUserRegistered(userID string, courseID string) (bool, error
 	registered, ok := cources.courses[courseID]
 	if !ok {
 		var registrationCount int
-		if err := h.DB.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
+		if err := h.Balance().Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
 			return false, err
 		}
 		if registrationCount == 0 {
@@ -89,7 +90,7 @@ func (h *handlers) getCourseIDByClassID(classID string) (string, error) {
 	}
 
 	class := Class{}
-	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", classID); err != nil {
+	if err := h.Balance().Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", classID); err != nil {
 		return "", err
 	}
 	classToCourseMapMutex.Lock()
