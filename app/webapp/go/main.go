@@ -1265,7 +1265,8 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 
 	// ファイル名を指定の形式に変更
 	eg := errgroup.Group{}
-	for _, submission := range submissions {
+	for _, _submission := range submissions {
+		submission := _submission
 		eg.Go(
 			func() error {
 				if err := exec.Command(
