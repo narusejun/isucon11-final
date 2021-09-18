@@ -20,8 +20,7 @@ QUERY="
  set global long_query_time = 0;
  set global slow_query_log = ON;
 "
-
-# echo $QUERY | sudo mysql -uroot
+echo $QUERY | sudo mysql -uroot
 
 # log permission
 sudo chmod 777 /var/log/nginx /var/log/nginx/*
