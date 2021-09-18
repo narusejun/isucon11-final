@@ -1244,8 +1244,6 @@ type Score struct {
 	Score    int    `json:"score"`
 }
 
-var totalScoreLock sync.Mutex
-
 // RegisterScores PUT /api/courses/:courseID/classes/:classID/assignments/scores 採点結果登録
 func (h *handlers) RegisterScores(c echo.Context) error {
 	classID := c.Param("classID")
@@ -1280,7 +1278,6 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	totalScoreLock.Lock()
 	type totalScoreS struct {
 		UserID     string `db:"user_id"`
 		TotalScore int    `db:"total_score"`
@@ -1295,19 +1292,16 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		" WHERE `courses`.`id` = ?" +
 		" GROUP BY `courses`.`id`, `users`.`id`"
 	if err := h.DB.Select(&totals, query, class.CourseID); err != nil {
-		totalScoreLock.Unlock()
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	for _, total := range totals {
 		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`total_scores`, `course_id`, `user_id`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE total_score = ?", total.TotalScore, class.CourseID, total.UserID, total.TotalScore); err != nil {
-			totalScoreLock.Unlock()
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
 	}
-	totalScoreLock.Unlock()
 
 	return c.NoContent(http.StatusNoContent)
 }
