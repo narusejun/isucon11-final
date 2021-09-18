@@ -1201,18 +1201,16 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 
 	// TODO 一発でできる
 	//query :=  strings.Repeat("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = \"" + classID + "\";", len(req))
-	args := make([]interface{}, 2 * len(req))
-
+	query := ""
 	for i := 0; i < len(req); i++ {
-		query :=  "UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = ? WHERE `users`.`code` = ? AND `class_id` = \"" + classID + "\";"
-		args[2*i] = req[i].Score
-		args[2*i+1] = req[i].UserCode
-		if _, err := tx.Exec(query, args[2*i], args[2*i+1]); err != nil {
-			c.Logger().Error(err)
-			return c.NoContent(http.StatusInternalServerError)
-		}
-
+		query +=  fmt.Sprintf("UPDATE `submissions` JOIN `users` ON `users`.`id` = `submissions`.`user_id` SET `score` = %d WHERE `users`.`code` = %d AND `class_id` = \"%s\";", req[i].Score, req[i].UserCode, classID)
 	}
+
+	if _, err := tx.Exec(query); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
 
 	if err := tx.Commit(); err != nil {
 		c.Logger().Error(err)
