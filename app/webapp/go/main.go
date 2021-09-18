@@ -1255,20 +1255,35 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 
 func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
 	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
+	if err := os.Remove(tmpDir); err != nil {
 		return err
 	}
-	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
+	if err := os.Mkdir(tmpDir, 0755); err != nil {
 		return err
 	}
 
 	// ファイル名を指定の形式に変更
 	for _, submission := range submissions {
-		if err := exec.Command(
-			"cp",
-			AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
-			tmpDir+submission.UserCode+"-"+submission.FileName,
-		).Run(); err != nil {
+		err := func() error {
+			src, err := os.Open(AssignmentsDirectory+classID+"-"+submission.UserID+".pdf")
+			if err != nil {
+				return err
+			}
+			defer src.Close()
+
+			dst, err := os.Create(tmpDir+submission.UserCode+"-"+submission.FileName)
+			if err != nil {
+				return err
+			}
+			defer dst.Close()
+
+			if _, err := io.Copy(dst, src); err != nil {
+				return err
+			}
+
+			return nil
+		}()
+		if err != nil {
 			return err
 		}
 	}
