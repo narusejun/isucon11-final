@@ -782,7 +782,6 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	}
 	CourseCacheMux.RUnlock()
 
-
 	course := &Course{}
 	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
 		return false, nil
@@ -955,17 +954,15 @@ func (h *handlers) GetClasses(c echo.Context) error {
 
 	courseID := c.Param("courseID")
 
+	etag := h.getClassesEtag(courseID, userID)
+	if etag != "" && c.Request().Header.Get("If-None-Match") == etag {
+		return c.NoContent(http.StatusNotModified)
+	}
+
 	ok, _ := h.getCourse(courseID)
 	if !ok {
 		return c.String(http.StatusNotFound, "No such course.")
 	}
-
-	tx, err := h.DB.Beginx()
-	if err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	defer tx.Rollback()
 
 	var classes []ClassWithSubmitted
 	query := "SELECT `classes`.*, `submissions`.`user_id` IS NOT NULL AS `submitted`" +
@@ -973,12 +970,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		" LEFT JOIN `submissions` ON `classes`.`id` = `submissions`.`class_id` AND `submissions`.`user_id` = ?" +
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
-	if err := tx.Select(&classes, query, userID, courseID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-
-	if err := tx.Commit(); err != nil {
+	if err := h.DB.Select(&classes, query, userID, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -996,6 +988,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 		})
 	}
 
+	c.Response().Header().Set("ETag", h.setClassesEtag(courseID, userID))
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -1017,7 +1010,6 @@ func (h *handlers) AddClass(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
-
 
 	ok, course := h.getCourse(courseID)
 	if !ok {
@@ -1059,6 +1051,8 @@ func (h *handlers) AddClass(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	h.discardClassesEtagByCource(courseID)
+
 	return c.JSON(http.StatusCreated, AddClassResponse{ClassID: classID})
 }
 
@@ -1081,7 +1075,6 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	if course.Status != StatusInProgress {
 		return c.String(http.StatusBadRequest, "This course is not in progress.")
 	}
-
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
@@ -1136,6 +1129,8 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	h.discardClassesEtagByUser(userID)
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -1196,6 +1191,7 @@ type Submission struct {
 
 // DownloadSubmittedAssignments GET /api/courses/:courseID/classes/:classID/assignments/export 提出済みの課題ファイルをzip形式で一括ダウンロード
 func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
+	courseID := c.Param("courseID")
 	classID := c.Param("classID")
 
 	tx, err := h.DB.Beginx()
@@ -1239,6 +1235,7 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	h.discardClassesEtagByCource(courseID)
 	return c.File(zipFilePath)
 }
 
