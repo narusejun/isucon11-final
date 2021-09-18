@@ -2,7 +2,9 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"database/sql"
+	"encoding/gob"
 	"fmt"
 	"github.com/goccy/go-json"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +65,39 @@ func (d DefaultJSONSerializer) Deserialize(c echo.Context, i interface{}) error 
 	return err
 }
 
+func load(logger echo.Logger) {
+	f, err := os.Open("./submission_cache")
+	if os.IsNotExist(err) {
+		logger.Info("File not exist")
+		return
+	}
+
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer f.Close()
+
+	dec := gob.NewDecoder(f)
+	if err := dec.Decode(&ClassSubmissionCache); err != nil {
+		logger.Fatal("decode error:", err)
+	}
+	logger.Infof("loaded: %+v", ClassSubmissionCache)
+}
+
+func shutdownHook(logger echo.Logger) {
+	logger.Info("Output to gob file")
+	f, err := os.Create("./submission_cache")
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer f.Close()
+	enc := gob.NewEncoder(f)
+
+	if err := enc.Encode(ClassSubmissionCache); err != nil {
+		logger.Fatal(err)
+	}
+}
+
 func main() {
 	var err error
 	if time.Local, err = time.LoadLocation("UTC"); err != nil {
@@ -79,6 +115,8 @@ func main() {
 	//e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(session.Middleware(sessions.NewCookieStore([]byte("trapnomura"))))
+
+	load(e.Logger)
 
 	db, _ := GetDB(false)
 	db.SetMaxOpenConns(200)
@@ -120,7 +158,24 @@ func main() {
 		}
 	}
 
-	e.Logger.Error(e.StartServer(e.Server))
+	// Start server
+	go func() {
+		if err := e.StartServer(e.Server); err != nil && err != http.ErrServerClosed {
+			e.Logger.Fatal("shutting down the server")
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
+	// Use a buffered channel to avoid missing signals as recommended for signal.Notify
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownHook(e.Logger)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		e.Logger.Fatal(err)
+	}
 }
 
 type InitializeResponse struct {
@@ -193,6 +248,11 @@ func (h *handlers) Initialize(c echo.Context) error {
 	ClassCacheMux.Lock()
 	ClassCacheMap = make(map[string]*Class)
 	ClassCacheMux.Unlock()
+
+	ClassSubmissionMux.Lock()
+	ClassSubmissionCache = make(map[string]struct{})
+	ClassSubmissionMux.Unlock()
+
 	return c.JSON(http.StatusOK, res)
 }
 
@@ -1028,6 +1088,24 @@ type GetClassResponse struct {
 	Submitted        bool   `json:"submitted"`
 }
 
+var (
+	ClassSubmissionCache = make(map[string]struct{})
+	ClassSubmissionMux = sync.RWMutex{}
+)
+
+func (h *handlers) isSubmit(classID string, userID string) bool {
+	ClassSubmissionMux.RLock()
+	_, ok := ClassSubmissionCache[classID + "/" + userID]
+	ClassSubmissionMux.RUnlock()
+	return ok
+}
+
+func (h *handlers) submit(classID string, userID string) {
+	ClassSubmissionMux.Lock()
+	ClassSubmissionCache[classID + "/" + userID] = struct{}{}
+	ClassSubmissionMux.Unlock()
+}
+
 // GetClasses GET /api/courses/:courseID/classes 科目に紐づく講義一覧の取得
 func (h *handlers) GetClasses(c echo.Context) error {
 	userID, _, _, err := getUserInfo(c)
@@ -1049,12 +1127,11 @@ func (h *handlers) GetClasses(c echo.Context) error {
 	}
 
 	var classes []ClassWithSubmitted
-	query := "SELECT `classes`.*, `submissions`.`user_id` IS NOT NULL AS `submitted`" +
+	query := "SELECT `classes`.*" +
 		" FROM `classes`" +
-		" LEFT JOIN `submissions` ON `classes`.`id` = `submissions`.`class_id` AND `submissions`.`user_id` = ?" +
 		" WHERE `classes`.`course_id` = ?" +
 		" ORDER BY `classes`.`part`"
-	if err := h.DB.Select(&classes, query, userID, courseID); err != nil {
+	if err := h.DB.Select(&classes, query, courseID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
@@ -1068,7 +1145,7 @@ func (h *handlers) GetClasses(c echo.Context) error {
 			Title:            class.Title,
 			Description:      class.Description,
 			SubmissionClosed: class.SubmissionClosed,
-			Submitted:        class.Submitted,
+			Submitted:        h.isSubmit(class.ID, userID),
 		})
 	}
 
@@ -1223,6 +1300,7 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	h.submit(classID, userID)
 
 	dst := AssignmentsDirectory + classID + "-" + userID + ".pdf"
 	fd, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE, 0666)
