@@ -35,7 +35,7 @@ const (
 var (
 	pool = &sync.Pool{
 		New: func() interface{} {
-			s := make([]byte, 16*1024*1024)
+			s := make([]byte, 128*1024)
 			return &s
 		},
 	}
