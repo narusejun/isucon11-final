@@ -90,6 +90,6 @@ CREATE TABLE `user_course_total_scores`
 (
     `user_id`      CHAR(26) NOT NULL,
     `course_id`    CHAR(26) NOT NULL,
-    `total_scores` INT      NOT NULL,
+    `total_score` INT      NOT NULL,
     PRIMARY KEY (`user_id`, `course_id`)
 );

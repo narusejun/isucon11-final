@@ -176,7 +176,7 @@ func (h *handlers) Initialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 	for _, total := range totals {
-		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`user_id`, `course_id`, `total_scores`) VALUES (?, ?, ?)", total.UserID, total.CourseID, total.TotalScore); err != nil {
+		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`user_id`, `course_id`, `total_score`) VALUES (?, ?, ?)", total.UserID, total.CourseID, total.TotalScore); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
