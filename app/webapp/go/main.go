@@ -1116,13 +1116,12 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "This course is not in progress.")
 	}
 
-	var registrationCount int
-	// TODO
-	if err := h.DB.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
+	registered, err := h.isUserRegistered(userID, courseID)
+	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if registrationCount == 0 {
+	if !registered {
 		return c.String(http.StatusBadRequest, "You have not taken this course.")
 	}
 
@@ -1489,25 +1488,34 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 
 	announcementID := c.Param("announcementID")
 
-	var announcement AnnouncementDetail
-	query := "SELECT `announcements`.`id`, `courses`.`id` AS `course_id`, `courses`.`name` AS `course_name`, `announcements`.`title`, `announcements`.`message`, NOT `unread_announcements`.`is_deleted` AS `unread`" +
-		" FROM `announcements`" +
-		" JOIN `courses` ON `courses`.`id` = `announcements`.`course_id`" +
-		" JOIN `unread_announcements` ON `unread_announcements`.`announcement_id` = `announcements`.`id`" +
-		" WHERE `announcements`.`id` = ?" +
-		" AND `unread_announcements`.`user_id` = ?" +
-		" AND EXISTS (SELECT * FROM `registrations` WHERE `course_id` = `courses`.`id` AND `user_id` = ?)"
-	if err := h.DB.Get(&announcement, query, announcementID, userID, userID); err != nil && err != sql.ErrNoRows {
+	announcementDetail, err := h.getAnnouncementDetail(announcementID)
+	if err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
 		return c.String(http.StatusNotFound, "No such announcement.")
 	}
 
-	if _, err := h.DB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
+	ok, err := h.isUserRegistered(userID, announcementDetail.CourseID)
+	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	if !ok {
+		return c.String(http.StatusNotFound, "No such announcement.")
+	}
 
-	return c.JSON(http.StatusOK, announcement)
+	r, err := h.DB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ? AND `is_deleted` = false", announcementID, userID)
+	if err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	count, _ := r.RowsAffected()
+	announcementDetail.Unread = count > 0
+
+	if !announcementDetail.Unread {
+		c.Response().Header().Set("Cache-Control", "max-age=86400")
+	}
+
+	return c.JSON(http.StatusOK, announcementDetail)
 }
