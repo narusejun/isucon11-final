@@ -782,7 +782,6 @@ func (h *handlers) getCourse(courseID string) (bool, *Course) {
 	}
 	CourseCacheMux.RUnlock()
 
-
 	course := &Course{}
 	if err := h.DB.Get(&course, "SELECT * FROM `courses` WHERE `id` = ? LIMIT 1", courseID); err != nil {
 		return false, nil
@@ -1018,7 +1017,6 @@ func (h *handlers) AddClass(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid format.")
 	}
 
-
 	ok, course := h.getCourse(courseID)
 	if !ok {
 		return c.String(http.StatusNotFound, "No such course.")
@@ -1081,7 +1079,6 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	if course.Status != StatusInProgress {
 		return c.String(http.StatusBadRequest, "This course is not in progress.")
 	}
-
 
 	tx, err := h.DB.Beginx()
 	if err != nil {
@@ -1495,6 +1492,10 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 	if _, err := h.DB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	if !announcement.Unread {
+		c.Response().Header().Set("Cache-Control", "max-age=86400")
 	}
 
 	return c.JSON(http.StatusOK, announcement)
