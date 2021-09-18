@@ -14,4 +14,3 @@ checkout:
 .PHONY: start
 start:
 	cd $(HOSTNAME) && ./deploy.sh
-	git rev-parse --short HEAD > $HOME/.git-revision
