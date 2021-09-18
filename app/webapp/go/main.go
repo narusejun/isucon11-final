@@ -1277,41 +1277,36 @@ func createSubmissionsZip(zipFilePath string, classID string, submissions []Subm
 		filename := AssignmentsDirectory+classID+"-"+submission.UserID+".pdf"
 		f, err := os.Open(filename)
 		if err != nil {
+			f.Close()
 			return err
 		}
 
 		fi, err := f.Stat()
 		if err != nil {
+			f.Close()
 			return err
 		}
 
-		fileReader, err := zip.NewReader(f, fi.Size())
+		fileInfoHeader, err := zip.FileInfoHeader(fi)
 		if err != nil {
+			f.Close()
 			return err
 		}
 
-		for _, file := range fileReader.File {
-			fileInfoHeader, err := zip.FileInfoHeader(file.FileInfo())
-			if err != nil {
-				return err
-			}
-			fileInfoHeader.Name = submission.UserCode+"-"+submission.FileName
-			addedFile, err := bodyWriter.CreateHeader(fileInfoHeader)
-			if err != nil {
-				return err
-			}
+		fileInfoHeader.Name = submission.UserCode+"-"+submission.FileName
 
-			ff, err := file.Open()
-			if err != nil {
-				return err
-			}
-
-			if _, err := io.Copy(addedFile, f);err != nil {
-				ff.Close()
-				return err
-			}
-			ff.Close()
+		addedFile, err := bodyWriter.CreateHeader(fileInfoHeader)
+		if err != nil {
+			f.Close()
+			return err
 		}
+
+		if _, err := io.Copy(addedFile, f);err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+
 		//eg.Go(
 		//	func() error {
 		//	},
