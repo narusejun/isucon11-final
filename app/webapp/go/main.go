@@ -49,7 +49,8 @@ var (
 )
 
 func (h *handlers) Balance() *sqlx.DB {
-	if atomic.AddInt64(&x, 1)%7 <= 3 {
+	v := atomic.AddInt64(&x, 1) % 5
+	if v == 0 || v == 2 {
 		return h.DB
 	} else {
 		return h.SubDB
