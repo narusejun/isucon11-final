@@ -1087,12 +1087,12 @@ func (h *handlers) SubmitAssignment(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var registrationCount int
-	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `user_id` = ? AND `course_id` = ? LIMIT 1", userID, courseID); err != nil {
+	registered, err := h.isUserRegistered(userID, courseID)
+	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	if registrationCount == 0 {
+	if !registered {
 		return c.String(http.StatusBadRequest, "You have not taken this course.")
 	}
 
