@@ -1029,7 +1029,7 @@ func (h *handlers) getClass(classID string) (bool, *Class){
 
 
 	class := &Class{}
-	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", class); err != nil {
+	if err := h.DB.Get(&class, "SELECT * FROM `classes` WHERE `id` = ? LIMIT 1", classID); err != nil {
 		return false, nil
 	}
 	ClassCacheMux.Lock()
