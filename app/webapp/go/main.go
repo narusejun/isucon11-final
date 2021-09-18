@@ -1297,7 +1297,7 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	}
 
 	for _, total := range totals {
-		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`total_scores`, `course_id`, `user_id`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE total_score = ?", total.TotalScore, class.CourseID, total.UserID, total.TotalScore); err != nil {
+		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`total_score`, `course_id`, `user_id`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE total_score = ?", total.TotalScore, class.CourseID, total.UserID, total.TotalScore); err != nil {
 			c.Logger().Error(err)
 			return c.NoContent(http.StatusInternalServerError)
 		}
