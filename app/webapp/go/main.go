@@ -1456,20 +1456,12 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 		" JOIN `courses` ON `courses`.`id` = `announcements`.`course_id`" +
 		" JOIN `unread_announcements` ON `unread_announcements`.`announcement_id` = `announcements`.`id`" +
 		" WHERE `announcements`.`id` = ?" +
-		" AND `unread_announcements`.`user_id` = ?"
-	if err := tx.Get(&announcement, query, announcementID, userID); err != nil && err != sql.ErrNoRows {
+		" AND `unread_announcements`.`user_id` = ?" +
+		" AND EXISTS (SELECT * FROM `registrations` WHERE `course_id` = `courses`.`id` AND `user_id` = ?)"
+	if err := tx.Get(&announcement, query, announcementID, userID, userID); err != nil && err != sql.ErrNoRows {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	} else if err == sql.ErrNoRows {
-		return c.String(http.StatusNotFound, "No such announcement.")
-	}
-
-	var registrationCount int
-	if err := tx.Get(&registrationCount, "SELECT COUNT(*) FROM `registrations` WHERE `course_id` = ? AND `user_id` = ?", announcement.CourseID, userID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
-	if registrationCount == 0 {
 		return c.String(http.StatusNotFound, "No such announcement.")
 	}
 
