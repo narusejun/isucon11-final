@@ -1204,8 +1204,8 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 	args := make([]interface{}, 2 * len(req))
 
 	for i := 0; i < len(req); i++ {
-		args[i] = req[i].Score
-		args[i+1] = req[i].UserCode
+		args[2*i] = req[i].Score
+		args[2*i+1] = req[i].UserCode
 	}
 
 	if _, err := tx.Exec(query, args...); err != nil {
