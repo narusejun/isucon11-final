@@ -1,15 +1,15 @@
 #!/bin/bash -eux
 
-# sudo cp -f etc/mysql/mariadb.conf.d/50-server.cnf /etc/mysql/mariadb.conf.d/50-server.cnf
-# sudo cp -f etc/nginx/nginx.conf /etc/nginx/nginx.conf
+sudo cp -f etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/mysql.conf.d/mysqld.cnf
+sudo cp -f etc/nginx/nginx.conf /etc/nginx/nginx.conf
+sudo cp -f etc/nginx/sites-available/isucholar.conf /etc/nginx/sites-available/isucholar.conf
 sudo nginx -t
-# sudo cp -f etc/nginx/sites-available/isucondition.conf /etc/nginx/sites-available/isucondition.conf
 # sudo cp -f home/isucon/env.sh /home/isucon/env.sh
 
 cd /home/isucon/webapp/go
 make build
 
-sudo systemctl restart isucholar..go
+sudo systemctl restart isucholar.go
 sudo systemctl restart nginx
 sudo systemctl restart mysql
 
