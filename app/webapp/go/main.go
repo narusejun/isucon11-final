@@ -50,7 +50,7 @@ var (
 )
 
 func (h *handlers) Balance() *sqlx.DB {
-	if atomic.AddInt64(&x, 1)%3 == 0 {
+	if atomic.AddInt64(&x, 1)%2 == 0 {
 		return h.DB
 	} else {
 		return h.SubDB
@@ -177,7 +177,7 @@ func main() {
 		}
 	}
 
-	if (GetEnv("USE_SOCKET", "0") == "1") {
+	if GetEnv("USE_SOCKET", "0") == "1" {
 		// ここからソケット接続設定 ---
 		socket_file := "/var/run/app.sock"
 		os.Remove(socket_file)
