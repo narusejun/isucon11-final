@@ -1397,20 +1397,22 @@ func (h *handlers) AddAnnouncement(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	var sb strings.Builder
-	for i, target := range targets {
-		sb.WriteString("('")
-		sb.WriteString(req.ID)
-		sb.WriteString("','")
-		sb.WriteString(target.ID)
-		sb.WriteString("')")
-		if i < len(targets) {
-			sb.WriteString(",")
+	if len(targets) > 0 {
+		var sb strings.Builder
+		for i, target := range targets {
+			sb.WriteString("('")
+			sb.WriteString(req.ID)
+			sb.WriteString("','")
+			sb.WriteString(target.ID)
+			sb.WriteString("')")
+			if i < len(targets) {
+				sb.WriteString(",")
+			}
 		}
-	}
-	if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES " + sb.String()); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
+		if _, err := tx.Exec("INSERT INTO `unread_announcements` (`announcement_id`, `user_id`) VALUES " + sb.String()); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
