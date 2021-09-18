@@ -1,9 +1,9 @@
 package main
 
 import (
+	"archive/zip"
 	"database/sql"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"io"
 	"net/http"
 	"net/url"
@@ -1255,37 +1255,70 @@ func (h *handlers) DownloadSubmittedAssignments(c echo.Context) error {
 }
 
 func createSubmissionsZip(zipFilePath string, classID string, submissions []Submission) error {
-	tmpDir := AssignmentsDirectory + classID + "/"
-	if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
+	//tmpDir := AssignmentsDirectory + classID + "/"
+	//if err := exec.Command("rm", "-rf", tmpDir).Run(); err != nil {
+	//	return err
+	//}
+	//if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
+	//		return err
+	//}
+
+	body, err := os.Create(zipFilePath)
+	if err != nil {
 		return err
 	}
-	if err := exec.Command("mkdir", tmpDir).Run(); err != nil {
-			return err
-	}
-
+	bodyWriter := zip.NewWriter(body)
+	defer bodyWriter.Close()
 	// ファイル名を指定の形式に変更
-	eg := errgroup.Group{}
+
+	// eg := errgroup.Group{}
 	for _, _submission := range submissions {
 		submission := _submission
-		eg.Go(
-			func() error {
-				if err := exec.Command(
-					"cp",
-					AssignmentsDirectory+classID+"-"+submission.UserID+".pdf",
-					tmpDir+submission.UserCode+"-"+submission.FileName,
-				).Run(); err != nil {
-					return err
-				}
-			  	return nil
-			},
-		)
+		filename := AssignmentsDirectory+classID+"-"+submission.UserID+".pdf"
+		f, err := os.Open(filename)
+		if err != nil {
+			f.Close()
+			return err
+		}
+
+		fi, err := f.Stat()
+		if err != nil {
+			f.Close()
+			return err
+		}
+
+		fileInfoHeader, err := zip.FileInfoHeader(fi)
+		if err != nil {
+			f.Close()
+			return err
+		}
+
+		fileInfoHeader.Name = submission.UserCode+"-"+submission.FileName
+
+		addedFile, err := bodyWriter.CreateHeader(fileInfoHeader)
+		if err != nil {
+			f.Close()
+			return err
+		}
+
+		if _, err := io.Copy(addedFile, f);err != nil {
+			f.Close()
+			return err
+		}
+		f.Close()
+
+		//eg.Go(
+		//	func() error {
+		//	},
+		//)
 	}
-	if err := eg.Wait(); err != nil {
-		return err
-	}
+	//if err := eg.Wait(); err != nil {
+	//	return err
+	//}
 
 	// -i 'tmpDir/*': 空zipを許す
-	return exec.Command("zip", "-j", "-r", zipFilePath, tmpDir, "-i", tmpDir+"*").Run()
+	//return exec.Command("zip", "-j", "-r", zipFilePath, tmpDir, "-i", tmpDir+"*").Run()
+	return nil
 }
 
 // ---------- Announcement API ----------
