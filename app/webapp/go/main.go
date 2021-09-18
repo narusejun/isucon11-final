@@ -1491,17 +1491,13 @@ func (h *handlers) GetAnnouncementDetail(c echo.Context) error {
 		return c.String(http.StatusNotFound, "No such announcement.")
 	}
 
-	var unread bool
-	if err := h.DB.Get(&unread, "SELECT NOT `unread_announcements`.`is_deleted` AS `unread` FROM `unread_announcements` WHERE `unread_announcements`.`announcement_id` = ? AND `unread_announcements`.`user_id` = ?", announcementID, userID); err != nil {
+	r, err := h.DB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ? AND `is_deleted` = false", announcementID, userID)
+	if err != nil {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
-	announcementDetail.Unread = unread
-
-	if _, err := h.DB.Exec("UPDATE `unread_announcements` SET `is_deleted` = true WHERE `announcement_id` = ? AND `user_id` = ?", announcementID, userID); err != nil {
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	count, _ := r.RowsAffected()
+	announcementDetail.Unread = count > 0
 
 	if !announcementDetail.Unread {
 		c.Response().Header().Set("Cache-Control", "max-age=86400")
