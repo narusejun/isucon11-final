@@ -157,6 +157,31 @@ func (h *handlers) Initialize(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
+	// totalScoreを計算し直す
+	type totalScoreS struct {
+		CourseID   string `db:"course_id"`
+		UserID     string `db:"user_id"`
+		TotalScore int    `db:"total_score"`
+	}
+	var totals []totalScoreS
+	query := "SELECT `courses`.`id` AS `course_id`, `users`.`id` AS `user_id`, IFNULL(SUM(`submissions`.`score`), 0) AS `total_score`" +
+		" FROM `users`" +
+		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
+		" JOIN `courses` ON `registrations`.`course_id` = `courses`.`id`" +
+		" LEFT JOIN `classes` ON `courses`.`id` = `classes`.`course_id`" +
+		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
+		" GROUP BY `courses`.`id`, `users`.`id`"
+	if err := h.DB.Select(&totals, query); err != nil {
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	for _, total := range totals {
+		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`user_id`, `course_id`, `total_scores`) VALUES (?, ?, ?)", total.UserID, total.CourseID, total.TotalScore); err != nil {
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+	}
+
 	res := InitializeResponse{
 		Language: "go",
 	}
@@ -1219,6 +1244,8 @@ type Score struct {
 	Score    int    `json:"score"`
 }
 
+var totalScoreLock sync.Mutex
+
 // RegisterScores PUT /api/courses/:courseID/classes/:classID/assignments/scores 採点結果登録
 func (h *handlers) RegisterScores(c echo.Context) error {
 	classID := c.Param("classID")
@@ -1252,6 +1279,35 @@ func (h *handlers) RegisterScores(c echo.Context) error {
 		c.Logger().Error(err)
 		return c.NoContent(http.StatusInternalServerError)
 	}
+
+	totalScoreLock.Lock()
+	type totalScoreS struct {
+		UserID     string `db:"user_id"`
+		TotalScore int    `db:"total_score"`
+	}
+	var totals []totalScoreS
+	query := "SELECT `users`.`id` AS `user_id`, IFNULL(SUM(`submissions`.`score`), 0) AS `total_score`" +
+		" FROM `users`" +
+		" JOIN `registrations` ON `users`.`id` = `registrations`.`user_id`" +
+		" JOIN `courses` ON `registrations`.`course_id` = `courses`.`id`" +
+		" LEFT JOIN `classes` ON `courses`.`id` = `classes`.`course_id`" +
+		" LEFT JOIN `submissions` ON `users`.`id` = `submissions`.`user_id` AND `submissions`.`class_id` = `classes`.`id`" +
+		" WHERE `courses`.`id` = ?" +
+		" GROUP BY `courses`.`id`, `users`.`id`"
+	if err := h.DB.Select(&totals, query, class.CourseID); err != nil {
+		totalScoreLock.Unlock()
+		c.Logger().Error(err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	for _, total := range totals {
+		if _, err := h.DB.Exec("INSERT INTO `user_course_total_scores` (`total_scores`, `course_id`, `user_id`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE total_score = ?", total.TotalScore, class.CourseID, total.UserID, total.TotalScore); err != nil {
+			totalScoreLock.Unlock()
+			c.Logger().Error(err)
+			return c.NoContent(http.StatusInternalServerError)
+		}
+	}
+	totalScoreLock.Unlock()
 
 	return c.NoContent(http.StatusNoContent)
 }

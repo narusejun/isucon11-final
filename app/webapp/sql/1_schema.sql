@@ -67,10 +67,10 @@ CREATE TABLE `submissions`
 
 CREATE TABLE `announcements`
 (
-    `id`         CHAR(26) PRIMARY KEY,
-    `course_id`  CHAR(26)     NOT NULL,
-    `title`      VARCHAR(255) NOT NULL,
-    `message`    TEXT         NOT NULL,
+    `id`        CHAR(26) PRIMARY KEY,
+    `course_id` CHAR(26)     NOT NULL,
+    `title`     VARCHAR(255) NOT NULL,
+    `message`   TEXT         NOT NULL,
     CONSTRAINT FK_announcements_course_id FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`)
 );
 
@@ -83,4 +83,12 @@ CREATE TABLE `unread_announcements`
     CONSTRAINT FK_unread_announcements_announcement_id FOREIGN KEY (`announcement_id`) REFERENCES `announcements` (`id`),
     CONSTRAINT FK_unread_announcements_user_id FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
     INDEX user_id__is_deleted (user_id, is_deleted)
+);
+
+CREATE TABLE `user_course_total_scores`
+(
+    `user_id`      CHAR(26) NOT NULL,
+    `course_id`    CHAR(26) NOT NULL,
+    `total_scores` INT      NOT NULL,
+    PRIMARY KEY (`user_id`, `course_id`)
 );
